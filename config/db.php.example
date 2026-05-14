@@ -1,0 +1,10 @@
+<?php
+return [
+    'host'    => 'localhost',
+    'port'    => 3306,
+    'socket'  => '/tmp/mysql.sock',
+    'name'    => 'anovex_labels',
+    'user'    => 'db_user',
+    'pass'    => 'db_password',
+    'charset' => 'utf8mb4',
+];

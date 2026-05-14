@@ -1,0 +1,10 @@
+# Ignore local and sensitive configuration
+config/db.php
+.DS_Store
+Thumbs.db
+/node_modules
+/vendor
+*.log
+*.sql
+*.sqlite
+.env
