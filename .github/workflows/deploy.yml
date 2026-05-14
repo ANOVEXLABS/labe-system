@@ -18,7 +18,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           port: 21
-          server-dir: /sub/labels/
+          server-dir: /anovex.eu/sub/labels/
           exclude: |
             **/.git*
             **/.git*/**
