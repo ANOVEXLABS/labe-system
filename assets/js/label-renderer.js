@@ -559,7 +559,7 @@ function buildRightZone(P, Z, v, ac, ingsArr, _fs2, product, distributor) {
     s += line(x1, y, x2, y, ac, 0.5, 0.12); y += 5;
   }
 
-  const distName = (distributor && distributor.name) || 'ANOVEX by AGENA Reality s.r.o.';
+  const distName = (distributor && distributor.name) || 'AGENA Labs s.r.o.';
   const distAddr = (distributor && distributor.address) || 'Pod radnicí 1328/1, Praha 5 ČR';
   const badgeR = P.VW <= 1200 ? 39 : P.VW <= 1900 ? 51 : 57;
   const badgeCX = x2 - badgeR - 10;
