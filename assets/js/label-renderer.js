@@ -12,7 +12,7 @@ const BASE_WARNINGS = [
   'Není náhradou pestré a vyvážené stravy.',
   'Uchovávejte mimo dosah dětí.'
 ];
-const BASE_STORAGE = 'uzavřené na suchém, chladném a před světlem chráněném místě.';
+const BASE_STORAGE = 'Uzavřené na suchém, chladném a před světlem chráněném místě.';
 
 // ── Helpers (z původního HTML) ──
 function esc(t) {
@@ -54,16 +54,6 @@ function fitFSWrapped(text, maxW, startFS, minFS, uppercase) {
     fs--;
   }
   return fs;
-}
-
-// ── EU 1169/2011 — minimální velikost písma ──
-// < 80 cm² → x-výška 0,9 mm; jinak → 1,2 mm; x-výška ≈ 52 % velikosti písma při 300 dpi
-function legalMinFS(P) {
-  const mmW = Math.round(P.VW * 25.4 / 300);
-  const mmH = Math.round(P.VH * 25.4 / 300);
-  const cm2  = (mmW * mmH) / 100;
-  const xHeightMm = cm2 < 80 ? 0.9 : 1.2;
-  return Math.ceil(xHeightMm * 300 / 25.4 / 0.52);
 }
 
 // ── Color helpers ──
@@ -229,9 +219,7 @@ function buildLabel(product, stack, P, distributor, lang) {
   const rawIngs = (lang !== 'cs' && tr.ings) ? tr.ings : (product.ings || []);
   const ingsArr = Array.isArray(rawIngs) ? rawIngs.map(r => Array.isArray(r) ? r : [r, '', '/']) : [];
 
-  if (P && P.isPortrait) return buildPortraitLabel(product, stack, P, distributor, lang, v, ingsArr);
-
-  const bOff = LX1, bSW = 4;  // LX1 = buildPreset bOff, proportional to label size
+  const bOff = 21, bSW = 4;
   const pad = 8;
   const yTop = bOff + pad;
   const yBot = VH - bOff - pad;
@@ -271,11 +259,10 @@ function buildLeftZone(P, Z, v, ac, isSel, _fs) {
   const red = '#d06060';
   const techFont = 'Arial,Helvetica,sans-serif';
 
-  const lMin   = legalMinFS(P);
-  const fs     = _fs.dosage !== undefined ? Math.max(lMin, _fs.dosage) : (F.min + 2);
-  const metaFS = _fs.meta   !== undefined ? Math.max(lMin, _fs.meta)   : (F.min + 2);
+  const fs     = Math.max(F.min + 2, _fs.dosage !== undefined ? _fs.dosage : F.min + 2);
+  const metaFS = Math.max(F.min + 2, _fs.meta   !== undefined ? _fs.meta   : F.min + 2);
   const lh     = Math.ceil(fs * 1.1);
-  const cpl    = Math.floor(w / (fs * 0.52));
+  const cpl    = Math.floor(w / (fs * 0.55));
   const bH     = Math.round((y2 - y1) * 0.18);
   const bY     = y2 - bH;
   const zH     = y2 - y1;
@@ -289,22 +276,18 @@ function buildLeftZone(P, Z, v, ac, isSel, _fs) {
   // Základní storage + případný doplněk
   // Odfiltruj základní větu pokud ji uživatel/parser vložil do pole
   let specificStorage = (v.storage || '').trim();
-  // Odstraň BASE_STORAGE a synonymní varianty (uzavřené/suché/chladné/světlo)
+  // Odstraň BASE_STORAGE a jeho varianty z pole (case-insensitive)
   const baseStorageNorm = BASE_STORAGE.toLowerCase().replace(/[.,]/g, '');
   specificStorage = specificStorage.split(/[.!]\s*/).filter(s => {
     const norm = s.trim().toLowerCase().replace(/[.,]/g, '');
-    if (!norm) return false;
-    if (baseStorageNorm.includes(norm) || norm.includes(baseStorageNorm.substring(0, 25))) return false;
-    // Filtruj věty které popisují totéž jinými slovy (uzavřen + suché|chladn|světl)
-    const isBaseVariant = /uzavřen/i.test(norm) && (/such[eéý]/i.test(norm) || /chladn/i.test(norm) || /světl/i.test(norm) || /licht/i.test(norm) || /trocken/i.test(norm));
-    return !isBaseVariant;
+    return norm && !baseStorageNorm.includes(norm) && !norm.includes(baseStorageNorm.substring(0, 30));
   }).join('. ').trim();
   if (specificStorage && !specificStorage.endsWith('.')) specificStorage += '.';
   const fullStorageText = specificStorage ? BASE_STORAGE + ' ' + specificStorage : BASE_STORAGE;
 
   function renderBlock(startY, label, bodyText, maxY2, labelColor) {
-    const labelPx  = label.length * fs * 0.65;  // bold uppercase je širší než průměrný znak
-    const firstCPL = Math.max(5, Math.floor((w - labelPx) / (fs * 0.52)));
+    const labelPx = label.length * fs * 0.55;
+    const firstCPL = Math.max(5, Math.floor((w - labelPx) / (fs * 0.55)));
     const words = bodyText.split(' ').filter(Boolean);
     let firstLine = '', rest = [], done = false;
     words.forEach(wd => {
@@ -375,15 +358,15 @@ function buildCenterZone(P, Z, v, ac, isSel, isPrem, palette, _fs, logoColor) {
   const snFS = fsOvr.ssub !== undefined ? fsOvr.ssub
              : fitFS((v.ssub || '').toUpperCase(), w - 16, snFSmax, F.md, true);
 
-  const yAnovex    = y1 + zH * 0.11;
+  const yAnovex    = y1 + zH * 0.07;
   const yDiamond   = yAnovex + F.sm + 4;
   const ySubtitle  = yDiamond + snFS + 10;
   const treeCenter = y1 + zH * 0.44;
   const treeGlowR  = w * 0.40;
   const ySeriesEN  = y1 + zH * 0.600;
 
-  // Glow — SELECT větev překryje správnou pozicí, non-select zachová treeCenter
-  if (!isSel) s += `<ellipse cx="${cx}" cy="${treeCenter}" rx="${treeGlowR}" ry="${treeGlowR * 0.85}" fill="url(#${glowId})"/>`;
+  // Glow
+  s += `<ellipse cx="${cx}" cy="${treeCenter}" rx="${treeGlowR}" ry="${treeGlowR * 0.85}" fill="url(#${glowId})"/>`;
 
   // A N O V E X
   s += txt(cx, yAnovex, 'A N O V E X', F.xl, acP, 900, 'middle', 6);
@@ -450,48 +433,37 @@ function buildCenterZone(P, Z, v, ac, isSel, isPrem, palette, _fs, logoColor) {
     s += txt(cx, premY, tier, F.sm, acS, 700, 'middle', 3);
 
   } else {
-    // ── SELECT layout ──
+    // ── SELECT layout (přesně z originálu) ──
     s += txt(cx, yDiamond, '♦', F.sm, acP, 400, 'middle');
 
-    // S E L E C T — strom těsně nad ním, feats mají dost místa dolů
-    const ySelect2 = y1 + zH * 0.65;
-    const tS2      = zH < 350 ? 0.46 : zH < 500 ? 0.60 : 0.76;
-    // Strom: spodní okraj stromu (by + 25*s) těsně nad SELECT textem
-    const treeCY2  = ySelect2 - F.sm - 12 - 25 * tS2;
-    const treeTopY = treeCY2 - 116 * tS2;
-
-    // Glow na správné pozici
-    s += `<ellipse cx="${cx}" cy="${treeCY2}" rx="${treeGlowR}" ry="${treeGlowR * 0.85}" fill="url(#${glowId})"/>`;
-
-    // Název produktu — vertikálně centrovaný mezi ♦ a vrchem stromu
     const bnF2 = fsOvr.bname !== undefined ? fsOvr.bname : fitFS((v.bname || '').toUpperCase(), w - 8, F.xl + 4, F.md, true);
     const bnL2 = wrap((v.bname || '').toUpperCase(), Math.floor((w - 8) / (bnF2 * 0.72)));
-    const nameTotalH = bnL2.length * bnF2 + (bnL2.length - 1) * 4;
-    const nameMidY   = (yDiamond + treeTopY) / 2;
-    const nameStartY = nameMidY - nameTotalH / 2 + bnF2;
-    bnL2.forEach((l, i) => { s += txt(cx, nameStartY + i * (bnF2 + 4), l, bnF2, wh, 900, 'middle', 0.5); });
+    const yName2 = yDiamond + F.sm + 6 - (bnF2 * 0.5 * (bnL2.length - 1));
+    bnL2.forEach((l, i) => { s += txt(cx, yName2 + bnF2 + i * (bnF2 + 4), l, bnF2, wh, 900, 'middle', 0.5); });
 
-    s += treeSVG(cx, treeCY2, tS2, acS, logoColor);
+    const tS2 = zH < 350 ? 0.38 : zH < 500 ? 0.50 : 0.62;
+    s += treeSVG(cx, y1 + zH * 0.46, tS2, acS, logoColor);
+
+    const ySelect2 = y1 + zH * 0.615;
     s += txt(cx, ySelect2, 'S E L E C T', F.sm, acS, 700, 'middle', 4);
 
-    // Zlatá linka a počet — linka kotvena od y2, počet centrován mezi linkou a rámečkem
-    const yLine2       = y2 - F.md - 14;
-    const borderInnerY = y2 + 6;  // vnitřní hrana zlatého rámečku (y2 + pad - bSW/2)
-    const yCount2      = Math.round((yLine2 + borderInnerY) / 2 + F.md * 0.32);
+    const yCount2 = y1 + zH * 0.960;
+    const yLine2  = y1 + zH * 0.900;
     s += line(cx - w * 0.3, yLine2, cx + w * 0.3, yLine2, lineTone, 0.8, 1);
     s += txt(cx, yCount2, v.count || '', F.md, acS, 700, 'middle');
 
-    // Feats — rovnoměrně rozděleny mezi SELECT a zlatou linkou
-    const featFS = fsOvr.feats !== undefined ? fsOvr.feats : F.xs;
-    const selItems = [v.f1, v.f2, v.f3, v.f4].filter(Boolean);
-    const featsAreaTop    = ySelect2 + F.sm + 10;
-    const featsAreaBottom = yLine2 - 8;
-    const featsAreaH      = featsAreaBottom - featsAreaTop;
-    const featStep = selItems.length > 1 ? (featsAreaH - featFS) / (selItems.length - 1) : featsAreaH / 2;
+    const featFS = fsOvr.feats !== undefined ? fsOvr.feats : F.md;
+    const selItems = [v.f1, v.f2, v.f3, v.f4];
+    const featsAreaTop = ySelect2 + F.sm + 8;
+    const featsAreaBottom = yLine2 - 6;
+    const featsAreaH = featsAreaBottom - featsAreaTop;
+    const featSlot = featsAreaH / 4;
     selItems.forEach((f, i) => {
-      const slotY = featsAreaTop + featStep * i + featFS * 0.85;
-      const clean = f.replace(/[✓✔☑]/g, '').trim();
-      s += txt(cx, slotY, clean, featFS, wh, 400, 'middle');
+      const slotMidY = featsAreaTop + featSlot * i + featSlot * 0.6;
+      if (f) {
+        const clean = f.replace(/[✓✔☑]/g, '').trim();
+        s += txt(cx, slotMidY, clean, featFS, wh, 400, 'middle');
+      }
     });
   }
 
@@ -507,115 +479,62 @@ function buildRightZone(P, Z, v, ac, ingsArr, _fs2, product, distributor) {
   const techFont = 'Arial,Helvetica,sans-serif';
   const ingMode = (product && product.ing_mode) || 'table';
 
-  // Minimální velikost písma dle EU 1169/2011 (zákonná norma)
-  const lMin = legalMinFS(P);
-  // Nutriční tabulka: bodyFS = zákonné minimum nebo slider; headFS = vždy stejné jako bodyFS (slider serv)
-  const bodyFS = _fs2.ings !== undefined ? Math.max(lMin, _fs2.ings) : lMin;
-  const headFS = _fs2.serv !== undefined ? Math.max(lMin, _fs2.serv) : bodyFS;
-  const textFS = bodyFS;
-  const storFS = _fs2.storage !== undefined ? Math.max(lMin, _fs2.storage) : (F.min + 2);
-  const distFS = _fs2.dist    !== undefined ? Math.max(lMin, _fs2.dist)    : (F.min + 2);
-  const numFS  = _fs2.num     !== undefined ? Math.max(lMin, _fs2.num)     : (F.min + 2);
+  const headFS = Math.max(F.min + 1, _fs2.serv    !== undefined ? _fs2.serv    : Math.min(F.sm, 18));
+  const bodyFS = Math.max(F.min + 2, _fs2.ings    !== undefined ? _fs2.ings    : F.min + 2);
+  const textFS = Math.max(F.min + 2, _fs2.slozeni !== undefined ? _fs2.slozeni : F.min + 2);
+  const storFS = Math.max(F.min + 2, _fs2.storage !== undefined ? _fs2.storage : F.min + 2);
+  const distFS = Math.max(F.min + 2, _fs2.dist    !== undefined ? _fs2.dist    : F.min + 2);
+  const numFS  = Math.max(F.min + 2, _fs2.num     !== undefined ? _fs2.num     : F.min + 2);
 
   const servTextRaw = String(v.serv || '').trim();
   let s = '', y = y1 + 2;
-  // maxY: obsah musí skončit před footer distributor (ten je vždy ukotven k y2)
-  const footerH = distFS * 2 + 16;
-  const maxY = y2 - Math.max(v.num ? numFS + 8 : 0, footerH + 10);
+  const maxY = y2 - numFS - 8;
 
   const servBracket = servTextRaw.match(/\([^)]+\)/)?.[0] || '';
   s += txt(x1, y + headFS, 'Složení denní dávky' + (servBracket ? ' ' + servBracket : ''), headFS, wh, 700, 'start', 0, techFont);
-  y += headFS + 4;
-  s += line(x1, y, x2, y, ac, 0.5, 0.18); y += 3;
-
-  // footFS pro %RH poznámky — zákonné minimum
-  const footFS = lMin;
+  y += headFS + 5;
+  s += line(x1, y, x2, y, ac, 0.5, 0.18); y += 4;
 
   if (ingMode === 'table') {
-    const rowLH     = bodyFS + 1;
-    const useTwoCol = (ingsArr || []).length > 20;
+    const c2 = x1 + w * 0.62;
+    const c3 = x1 + w * 0.88;
+    const hdrFS = bodyFS;
+    s += txt(x1 + 2, y + hdrFS, 'Složka', hdrFS, wh, 700, 'start', 0, techFont);
+    s += txt(c2 + 2, y + hdrFS, 'Množství', hdrFS, wh, 700, 'start', 0, techFont);
+    s += txt(x2 - 2, y + hdrFS, '%RH*', hdrFS, wh, 700, 'end', 0, techFont);
+    y += hdrFS + 4;
+    s += line(x1, y, x2, y, ac, 0.5, 0.13); y += 3;
 
-    if (useTwoCol) {
-      // Two-column table for long ingredient lists (>20 ingredients)
-      const colGap = 10;
-      const colW   = Math.floor((w - colGap) / 2);
-      const nRatio = 0.57;
-      const lx1 = x1,            lc2 = lx1 + Math.floor(colW * nRatio), lx2 = lx1 + colW;
-      const rx1 = lx2 + colGap,  rc2 = rx1 + Math.floor(colW * nRatio), rx2 = x2;
-      const lnW = lc2 - lx1 - 4;
-      const rnW = rc2 - rx1 - 4;
+    const nameW = c2 - x1 - 6;
+    const amountW = c3 - c2 - 6;
+    const rowLH = bodyFS + 2;
 
-      s += txt(lx1+2, y+bodyFS, 'Složka',     bodyFS, wh, 700, 'start', 0, techFont);
-      s += txt(lc2+2, y+bodyFS, 'Množ./%RH*', bodyFS, wh, 700, 'start', 0, techFont);
-      s += txt(rx1+2, y+bodyFS, 'Složka',     bodyFS, wh, 700, 'start', 0, techFont);
-      s += txt(rc2+2, y+bodyFS, 'Množ./%RH*', bodyFS, wh, 700, 'start', 0, techFont);
-      y += bodyFS + 3;
-      s += line(x1, y, x2, y, ac, 0.5, 0.13); y += 2;
-
-      const half      = Math.ceil((ingsArr || []).length / 2);
-      const leftIngs  = (ingsArr || []).slice(0, half);
-      const rightIngs = (ingsArr || []).slice(half);
-      const maxRows   = Math.max(leftIngs.length, rightIngs.length);
-
-      for (let ri = 0; ri < maxRows; ri++) {
-        if (y >= maxY - rowLH) break;
-        let rowH = 1;
-        if (ri < leftIngs.length) {
-          const [nm, am, rh] = leftIngs[ri];
-          const nL = wrap(String(nm||'').trim(), Math.max(4, Math.floor(lnW / (bodyFS * 0.50))));
-          rowH = Math.max(rowH, nL.length);
-          nL.forEach((l, i) => s += txt(lx1+2, y+bodyFS+i*rowLH, l, bodyFS, wh, 400, 'start', 0, techFont));
-          const amStr = [am&&am.trim(), rh&&rh.trim()&&rh.trim()!=='/'?rh.trim():''].filter(Boolean).join(' ');
-          if (amStr) s += txt(lc2+2, y+bodyFS, amStr, bodyFS, wh, 400, 'start', 0, techFont);
-        }
-        if (ri < rightIngs.length) {
-          const [nm, am, rh] = rightIngs[ri];
-          const nL = wrap(String(nm||'').trim(), Math.max(4, Math.floor(rnW / (bodyFS * 0.50))));
-          rowH = Math.max(rowH, nL.length);
-          nL.forEach((l, i) => s += txt(rx1+2, y+bodyFS+i*rowLH, l, bodyFS, wh, 400, 'start', 0, techFont));
-          const amStr = [am&&am.trim(), rh&&rh.trim()&&rh.trim()!=='/'?rh.trim():''].filter(Boolean).join(' ');
-          if (amStr) s += txt(rc2+2, y+bodyFS, amStr, bodyFS, wh, 400, 'start', 0, techFont);
-        }
-        y += rowH * rowLH + 1;
-        s += line(x1, y, x2, y, ac, 0.4, 0.10); y += 1;
+    (ingsArr || []).forEach(ing => {
+      if (y >= maxY - rowLH) return;
+      const [nm, am, rh] = ing;
+      const nameLines = wrap(String(nm || '').trim(), Math.max(6, Math.floor(nameW / (bodyFS * 0.54))));
+      const amountLines = wrap(String(am || '').trim(), Math.max(4, Math.floor(amountW / (bodyFS * 0.52))));
+      const linesCount = Math.max(nameLines.length, amountLines.length, 1);
+      for (let i = 0; i < linesCount; i++) {
+        if (i < nameLines.length) s += txt(x1 + 2, y + bodyFS + i * rowLH, nameLines[i], bodyFS, wh, 400, 'start', 0, techFont);
+        if (i < amountLines.length) s += txt(c2 + 2, y + bodyFS + i * rowLH, amountLines[i], bodyFS, wh, 400, 'start', 0, techFont);
+        if (i === 0) s += txt(x2 - 2, y + bodyFS, String(rh || '/'), bodyFS, wh, 400, 'end', 0, techFont);
       }
+      y += linesCount * rowLH + 2;
+      s += line(x1, y, x2, y, ac, 0.4, 0.12); y += 2;
+    });
 
-    } else {
-      // Single-column ingredient table
-      const c2 = x1 + w * 0.62;
-      const c3 = x1 + w * 0.88;
-      s += txt(x1 + 2, y + bodyFS, 'Složka',   bodyFS, wh, 700, 'start', 0, techFont);
-      s += txt(c2 + 2, y + bodyFS, 'Množství', bodyFS, wh, 700, 'start', 0, techFont);
-      s += txt(x2 - 2, y + bodyFS, '%RH*',    bodyFS, wh, 700, 'end',   0, techFont);
-      y += bodyFS + 3;
-      s += line(x1, y, x2, y, ac, 0.5, 0.13); y += 2;
-      const nameW   = c2 - x1 - 6;
-      const amountW = c3 - c2 - 6;
-      (ingsArr || []).forEach(ing => {
-        if (y >= maxY - rowLH) return;
-        const [nm, am, rh] = ing;
-        const nameLines   = wrap(String(nm || '').trim(), Math.max(6, Math.floor(nameW   / (bodyFS * 0.50))));
-        const amountLines = wrap(String(am || '').trim(), Math.max(4, Math.floor(amountW / (bodyFS * 0.50))));
-        const linesCount  = Math.max(nameLines.length, amountLines.length, 1);
-        for (let i = 0; i < linesCount; i++) {
-          if (i < nameLines.length)   s += txt(x1 + 2, y + bodyFS + i * rowLH, nameLines[i],   bodyFS, wh, 400, 'start', 0, techFont);
-          if (i < amountLines.length) s += txt(c2 + 2, y + bodyFS + i * rowLH, amountLines[i], bodyFS, wh, 400, 'start', 0, techFont);
-          if (i === 0) s += txt(x2 - 2, y + bodyFS, String(rh || '/'), bodyFS, wh, 400, 'end', 0, techFont);
-        }
-        y += linesCount * rowLH + 1;
-        s += line(x1, y, x2, y, ac, 0.4, 0.12); y += 1;
-      });
-    }
-
-    wrap('*% RH = % referenční hodnoty příjmu dle přílohy XIII nař. (EU) č. 1169/2011', Math.max(8, Math.floor(w / (footFS * 0.50)))).forEach(l => {
+    const footFS = Math.max(F.min + 2, F.min + 2);
+    wrap('*% RH = % referenční hodnoty příjmu dle přílohy XIII nař. (EU) č. 1169/2011', Math.max(8, Math.floor(w / (footFS * 0.55)))).forEach(l => {
       if (y < maxY) { s += txt(x1, y + footFS, l, footFS, wh, 400, 'start', 0, techFont); y += footFS + 1; }
     });
-    if (y < maxY) { s += txt(x1, y + footFS, '/ = RH není stanovena', footFS, wh, 400, 'start', 0, techFont); y += footFS + 4; }
-    s += line(x1, y, x2, y, ac, 0.5, 0.15); y += 4;
+    if (y < maxY) { s += txt(x1, y + footFS, '/ = RH není stanovena', footFS, wh, 400, 'start', 0, techFont); y += footFS + 5; }
+    s += line(x1, y, x2, y, ac, 0.5, 0.15); y += 5;
 
   } else {
-    const rowLH = bodyFS + 1;
-    const cpl   = Math.max(10, Math.floor(w / (bodyFS * 0.50)));
+    const ingTextFS = Math.max(F.min + 2, _fs2.ings !== undefined ? _fs2.ings : F.min + 2);
+    const rowLH = ingTextFS + 2;
+    const cpl = Math.max(10, Math.floor(w / (ingTextFS * 0.54)));
     const ingText = (ingsArr || []).map(([nm, am, rh]) => {
       let t = String(nm || '').trim();
       if (am && am.trim()) t += ' ' + am.trim();
@@ -623,30 +542,17 @@ function buildRightZone(P, Z, v, ac, ingsArr, _fs2, product, distributor) {
       return t;
     }).filter(Boolean).join(', ');
     wrap(ingText, cpl).forEach(l => {
-      if (y < maxY) { s += txt(x1, y + bodyFS, l, bodyFS, wh, 400, 'start', 0, techFont); y += rowLH; }
+      if (y < maxY) { s += txt(x1, y + ingTextFS, l, ingTextFS, wh, 400, 'start', 0, techFont); y += rowLH; }
     });
-    wrap('*% RH = % referenční hodnoty příjmu dle přílohy XIII nař. (EU) č. 1169/2011', Math.max(8, Math.floor(w / (footFS * 0.50)))).forEach(l => {
-      if (y < maxY) { s += txt(x1, y + footFS, l, footFS, wh, 400, 'start', 0, techFont); y += footFS + 1; }
-    });
-    if (y < maxY) { s += txt(x1, y + footFS, '/ = RH není stanovena', footFS, wh, 400, 'start', 0, techFont); y += footFS + 4; }
-    s += line(x1, y, x2, y, ac, 0.5, 0.15); y += 4;
+    y += 5;
+    s += line(x1, y, x2, y, ac, 0.5, 0.15); y += 5;
   }
 
-  if (y < maxY) {
-    s += txt(x1, y + headFS, 'SLOŽENÍ:', headFS, wh, 700, 'start', 0, techFont);
-    y += headFS + 3;
-    // Automaticky odstraní nepovinný obsah: aminokyseliny za kolagen + latinské botanické názvy
-    const slozeniClean = String(v.slozeni || '').trim()
-      .replace(/\s*\(obsahuje aminokyseliny:[^)]+\)/gi, '')
-      .replace(/\s*\(enthält die Aminosäuren:[^)]+\)/gi, '')
-      .replace(/\s*\(contains amino acids:[^)]+\)/gi, '')
-      .replace(/\s*\(obsah aminokyselín:[^)]+\)/gi, '')
-      .replace(/\s*\(zawiera aminokwasy:[^)]+\)/gi, '')
-      .replace(/\s*\([A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ][a-záčďéěíňóřšťúůýž]+ [a-záčďéěíňóřšťúůýž]+\)/g, '');
-    wrap(slozeniClean, Math.max(10, Math.floor(w / (textFS * 0.50)))).forEach(l => {
-      if (y < maxY) { s += txt(x1, y + textFS, l, textFS, wh, 400, 'start', 0, techFont); y += textFS + 1; }
-    });
-  }
+  s += txt(x1, y + headFS, 'SLOŽENÍ:', headFS, wh, 700, 'start', 0, techFont);
+  y += headFS + 4;
+  wrap(String(v.slozeni || '').trim(), Math.max(10, Math.floor(w / (textFS * 0.55)))).forEach(l => {
+    if (y < maxY) { s += txt(x1, y + textFS, l, textFS, wh, 400, 'start', 0, techFont); y += textFS + 1; }
+  });
 
   if (y + headFS + storFS + distFS * 2 < maxY) {
     y += 4;
@@ -670,240 +576,4 @@ function buildRightZone(P, Z, v, ac, ingsArr, _fs2, product, distributor) {
     s += `<text x="${badgeCX}" y="${badgeCY}" text-anchor="middle" dominant-baseline="middle" dy="0.02em" font-family="${techFont}" font-size="${badgeTextFS}" font-weight="700" letter-spacing="0" fill="#ffffff">${esc(badgeText)}</text>`;
   }
   return s;
-}
-
-// ════════════════════════════════════════════════════════════════
-// PORTRAIT LAYOUT — pro etikety kde VH > VW (např. 110×155 mm)
-// Zóny: TOP 45% (branding) | MIDDLE 38% (left: text, right: ings) | BOTTOM 17% (barcode)
-// ════════════════════════════════════════════════════════════════
-
-function buildPortraitTopZone(w, cx, xL, xR, yT, yDiv1, F, v, ac, palette, isSel, isPrem, fsOvr, logoColor) {
-  const wh       = '#ffffff';
-  const acP      = (palette && palette.primary)   || ac;
-  const acS      = (palette && palette.secondary) || ac;
-  const lineTone = (palette && palette.line)      || acS;
-  const zH = yDiv1 - yT;
-  let s = '';
-
-  const glowId = `pg_${Math.random().toString(36).slice(2, 7)}`;
-  s += `<defs><radialGradient id="${glowId}" cx="50%" cy="50%" r="50%">
-    <stop offset="0%"   stop-color="${acS}" stop-opacity="0.22"/>
-    <stop offset="55%"  stop-color="${acS}" stop-opacity="0.07"/>
-    <stop offset="100%" stop-color="${ac}"  stop-opacity="0"/>
-  </radialGradient></defs>`;
-
-  const yAnovex  = yT + Math.round(zH * 0.09);
-  const yDiamond = yAnovex + F.xl + 4;
-  s += txt(cx, yAnovex + F.xl, 'A N O V E X', F.xl, acP, 900, 'middle', 6);
-  s += txt(cx, yDiamond + F.sm, '♦', F.sm, acP, 400, 'middle');
-
-  const seriesText  = isSel ? 'S E L E C T' : (isPrem ? 'P R E M I U M' : 'F O R M U L A');
-  const ySeriesLine = yT + Math.round(zH * 0.67);
-  const tS          = zH < 500 ? 0.50 : zH < 800 ? 0.65 : 0.80;
-  const treeCY      = ySeriesLine - F.sm - 14 - Math.round(25 * tS);
-  const treeTopY    = treeCY - Math.round(116 * tS);
-  const treeGlowR   = w * 0.20;
-
-  s += `<ellipse cx="${cx}" cy="${treeCY}" rx="${treeGlowR}" ry="${Math.round(treeGlowR * 0.85)}" fill="url(#${glowId})"/>`;
-
-  // Product name between ♦ and tree top
-  const bnAvailW = w - 16;
-  const bnFS = fsOvr.bname !== undefined ? fsOvr.bname
-    : fitFS((v.bname || '').toUpperCase(), bnAvailW, F.xl, F.md, true);
-  const bnL = wrap((v.bname || '').toUpperCase(), Math.floor(bnAvailW / (bnFS * 0.72)));
-  const nameTotalH = bnL.length * bnFS + (bnL.length - 1) * 4;
-  const nameMidY   = (yDiamond + F.sm + treeTopY) / 2;
-  const nameStartY = nameMidY - nameTotalH / 2 + bnFS;
-  bnL.forEach((l, i) => s += txt(cx, nameStartY + i * (bnFS + 4), l, bnFS, wh, 900, 'middle', 0.5));
-
-  s += treeSVG(cx, treeCY, tS, acS, logoColor);
-  s += txt(cx, ySeriesLine, seriesText, F.sm, acS, 700, 'middle', 4);
-
-  // Divider + count anchored to bottom of top zone, s paddingem před hlavní linkou
-  const bottomPad = Math.round(F.md * 1.0);
-  const yLine  = yDiv1 - F.md - 14 - bottomPad;
-  const yCount = yLine + Math.round(F.md * 1.15);
-  s += line(cx - w * 0.3, yLine, cx + w * 0.3, yLine, lineTone, 0.8, 1);
-  s += txt(cx, yCount, v.count || '', F.md, acS, 700, 'middle');
-
-  // Feats / sub between series line and count divider
-  const featsTop = ySeriesLine + F.sm + 8;
-  const featsBot = yLine - 8;
-  const featsH   = featsBot - featsTop;
-  if (isSel) {
-    const featFS   = fsOvr.feats !== undefined ? fsOvr.feats : F.xs;
-    const selItems = [v.f1, v.f2, v.f3, v.f4].filter(Boolean);
-    const featStep = selItems.length > 1 ? (featsH - featFS) / (selItems.length - 1) : featsH / 2;
-    selItems.forEach((f, i) => {
-      const slotY = featsTop + featStep * i + featFS * 0.85;
-      s += txt(cx, slotY, f.replace(/[✓✔☑]/g, '').trim(), featFS, wh, 400, 'middle');
-    });
-  } else if (v.sub) {
-    const subFS = fsOvr.sub !== undefined ? fsOvr.sub : F.xs;
-    s += txt(cx, featsTop + featsH / 2 + subFS * 0.5, v.sub, subFS, 'rgba(255,255,255,0.82)', 400, 'middle', 0.5);
-  }
-
-  return s;
-}
-
-function buildPortraitLeftZone(P, Fm, Z, v, ac, fsOvr, topPadOverride) {
-  const { x1, x2, y1, y2, w } = Z;
-  const wh       = '#ffffff';
-  const red      = '#d06060';
-  const techFont = 'Arial,Helvetica,sans-serif';
-
-  const lMin   = legalMinFS(P);
-  const fs     = fsOvr.dosage !== undefined ? Math.max(lMin, fsOvr.dosage) : (Fm.min + 2);
-  const metaFS = fsOvr.meta   !== undefined ? Math.max(lMin, fsOvr.meta)   : (Fm.min + 2);
-  const lh     = Math.ceil(fs * 1.1);
-  const cpl    = Math.floor(w / (fs * 0.52));
-  const sp     = Math.min(4, Math.max(1, Math.round((y2 - y1) / 180)));
-
-  const specificWarns = (v.w4 || '').split('\n').map(l => l.trim()).filter(Boolean);
-  const fullWarnText  = [...BASE_WARNINGS, ...specificWarns].join(' ');
-
-  let specificStorage = (v.storage || '').trim();
-  const baseStorageNorm = BASE_STORAGE.toLowerCase().replace(/[.,]/g, '');
-  specificStorage = specificStorage.split(/[.!]\s*/).filter(seg => {
-    const norm = seg.trim().toLowerCase().replace(/[.,]/g, '');
-    if (!norm) return false;
-    if (baseStorageNorm.includes(norm) || norm.includes(baseStorageNorm.substring(0, 25))) return false;
-    return !(/uzavřen/i.test(norm) && (/such[eéý]/i.test(norm) || /chladn/i.test(norm) || /světl/i.test(norm) || /licht/i.test(norm) || /trocken/i.test(norm)));
-  }).join('. ').trim();
-  if (specificStorage && !specificStorage.endsWith('.')) specificStorage += '.';
-  const fullStorageText = specificStorage ? BASE_STORAGE + ' ' + specificStorage : BASE_STORAGE;
-
-  // Obsah/Šarže anchored to zone bottom (no barcode area)
-  const metaY = y2 - (metaFS * 2 + 12);
-  // Gap pod tlustou linkou — stejný jako gap nad ní (předán z buildPortraitLabel)
-  const topPad = topPadOverride !== undefined ? topPadOverride : Math.round((y2 - y1) * 0.22);
-  const maxY  = metaY - 4;
-
-  function renderBlock(startY, label, bodyText, maxY2, labelColor) {
-    const labelPx  = label.length * fs * 0.65;
-    const firstCPL = Math.max(5, Math.floor((w - labelPx) / (fs * 0.52)));
-    const words = bodyText.split(' ').filter(Boolean);
-    let firstLine = '', rest = [], done = false;
-    words.forEach(wd => {
-      if (!done) { const t = firstLine ? firstLine + ' ' + wd : wd; if (t.length <= firstCPL) firstLine = t; else { done = true; rest.push(wd); } }
-      else rest.push(wd);
-    });
-    const restLines  = wrap(rest.join(' '), cpl);
-    const totalLines = 1 + restLines.length;
-    let out = '', yl = startY;
-    if (yl < maxY2) {
-      out += `<text x="${x1}" y="${yl + fs}" font-family="${techFont}" font-size="${fs}" fill="${wh}"><tspan font-weight="700" fill="${labelColor || wh}">${esc(label)}</tspan><tspan font-weight="400"> ${esc(firstLine)}</tspan></text>`;
-    }
-    restLines.forEach(l => {
-      yl += lh;
-      if (yl < maxY2) out += `<text x="${x1}" y="${yl + fs}" font-family="${techFont}" font-size="${fs}" font-weight="400" fill="${wh}">${esc(l)}</text>`;
-    });
-    return { s: out, y: startY + (totalLines - 1) * lh + lh };
-  }
-
-  let s = '', y = y1 + topPad;
-  s += `<text x="${x1}" y="${y + fs}" font-family="${techFont}" font-size="${fs}" font-weight="700" fill="${wh}">DOPLNĚK STRAVY</text>`;
-  y += lh;
-  { const r = renderBlock(y, 'DÁVKOVÁNÍ:',  (v.dosage || '').trim(), maxY);          s += r.s; y = r.y; }
-  { const r = renderBlock(y, 'UPOZORNĚNÍ:', fullWarnText,             maxY, red);     s += r.s; y = r.y; }
-  if (y < maxY) { y += sp; const r = renderBlock(y, 'UCHOVÁVÁNÍ:', fullStorageText, maxY); s += r.s; y = r.y; }
-
-  s += line(x1, metaY - 4, x2, metaY - 4, ac, 0.5, 0.18);
-  if (v.net) s += `<text x="${x1}" y="${metaY + metaFS}" font-family="${techFont}" font-size="${metaFS}" font-weight="700" fill="${wh}">Obsah: ${esc(v.net)}</text>`;
-  s += `<text x="${x1}" y="${metaY + metaFS * 2 + 3}" font-family="${techFont}" font-size="${metaFS}" font-weight="400" fill="${wh}">Č. šarže / Min. trvanlivost: viz. obal</text>`;
-  return s;
-}
-
-function buildPortraitLabel(product, stack, P, distributor, lang, v, ingsArr) {
-  const { VW, VH, LX1 } = P;
-  const bg      = stack.bg || '#0f0d08';
-  const palette = getPrintPalette(stack);
-  const ac      = palette.primary;
-  const isSel   = stack.series === 'select';
-  const isPrem  = stack.series === 'premium';
-  const logoColor = stack.logo_color || 'gold';
-  const fsOvr   = product.fs || {};
-
-  const bOff = LX1, bSW = 4;
-  const pad  = 8;
-  const xL   = bOff + pad;
-  const xR   = VW - bOff - pad;
-  const w    = xR - xL;
-  const cx   = Math.round(xL + w / 2);
-  const yT   = bOff + pad;
-  const yB   = VH - bOff - pad;
-  const h    = yB - yT;
-
-  const yDiv1 = yT + Math.round(h * 0.53);
-  const yDiv2 = yT + Math.round(h * 0.87);
-  const xMid  = xL + Math.round(w * 0.50);
-
-  // Top zone fonts: height of top zone ≈ reference landscape height (827px)
-  const topH = yDiv1 - yT;
-  const psc  = topH / 827.0;
-  const F = {
-    min: Math.max(14, Math.round(26 * psc)),
-    xs:  Math.max(16, Math.round(30 * psc)),
-    sm:  Math.max(18, Math.round(36 * psc)),
-    md:  Math.max(22, Math.round(44 * psc)),
-    lg:  Math.max(26, Math.round(56 * psc)),
-    xl:  Math.max(32, Math.round(68 * psc)),
-  };
-
-  // Middle zone fonts: scale based on middle zone height
-  const midH = yDiv2 - yDiv1;
-  const msc  = midH / 827.0;
-  const Fm = {
-    min: Math.max(14, Math.round(26 * msc)),
-    xs:  Math.max(16, Math.round(30 * msc)),
-    sm:  Math.max(18, Math.round(36 * msc)),
-    md:  Math.max(22, Math.round(44 * msc)),
-    lg:  Math.max(26, Math.round(56 * msc)),
-    xl:  Math.max(32, Math.round(68 * msc)),
-  };
-
-  let svg = `<svg width="100%" viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">`;
-  svg += `<defs>
-    <clipPath id="pClipT"><rect x="${bOff}" y="${bOff}" width="${VW-bOff*2}" height="${yDiv1-bOff}"/></clipPath>
-    <clipPath id="pClipML"><rect x="${bOff}" y="${yDiv1}" width="${xMid-bOff}" height="${yDiv2-yDiv1}"/></clipPath>
-    <clipPath id="pClipMR"><rect x="${xMid}" y="${yDiv1}" width="${VW-xMid-bOff}" height="${yDiv2-yDiv1}"/></clipPath>
-    <clipPath id="pClipB"><rect x="${bOff}" y="${yDiv2}" width="${VW-bOff*2}" height="${VH-yDiv2-bOff}"/></clipPath>
-  </defs>`;
-
-  svg += rect(0, 0, VW, VH, bg);
-  svg += `<rect x="${bOff}" y="${bOff}" width="${VW-bOff*2}" height="${VH-bOff*2}" fill="none" stroke="${ac}" stroke-width="${bSW}"/>`;
-  svg += line(bOff + 2, yDiv1, VW - bOff - 2, yDiv1, ac, bSW, 1);
-  svg += line(bOff + 2, yDiv2, VW - bOff - 2, yDiv2, ac, bSW, 1);
-  svg += line(xMid, yDiv1 + 2, xMid, yDiv2 - 2, ac, bSW, 1);
-
-  svg += `<g clip-path="url(#pClipT)">`;
-  svg += buildPortraitTopZone(w, cx, xL, xR, yT, yDiv1, F, v, ac, palette, isSel, isPrem, fsOvr, logoColor);
-  svg += `</g>`;
-
-  // Gap pod tlustou linkou = gap nad ní (bottomPad z buildPortraitTopZone)
-  const contentGap = Math.round(F.md * 1.0);
-
-  const ZL = { x1: xL, x2: xMid - pad, y1: yDiv1 + pad, y2: yDiv2 - pad, w: xMid - pad - xL };
-  svg += `<g clip-path="url(#pClipML)">`;
-  svg += buildPortraitLeftZone(P, Fm, ZL, v, ac, fsOvr, contentGap);
-  svg += `</g>`;
-
-  const PRmod = { ...P, F: Fm };
-  const ZR = { x1: xMid + pad, x2: xR, y1: yDiv1 + contentGap, y2: yDiv2 - pad, w: xR - (xMid + pad) };
-  svg += `<g clip-path="url(#pClipMR)">`;
-  svg += buildRightZone(PRmod, ZR, v, ac, ingsArr, fsOvr, product, distributor);
-  svg += `</g>`;
-
-  // Bottom: barcode centered
-  const botAvailH = VH - bOff - yDiv2;
-  const bcH = Math.round(botAvailH * 0.72);
-  const bcW = Math.round(w * 0.60);
-  const bcX = bOff + Math.round((VW - 2 * bOff - bcW) / 2);
-  const bcY = yDiv2 + Math.round((botAvailH - bcH) * 0.5);
-  svg += `<g clip-path="url(#pClipB)">`;
-  if (v.ean) svg += buildBarcode(v.ean, bcX, bcY, bcW, bcH, '#000000');
-  svg += `</g>`;
-
-  svg += '</svg>';
-  return svg;
 }

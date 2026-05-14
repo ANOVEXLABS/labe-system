@@ -37,7 +37,7 @@ async function buildPDF(canvas, imgW, imgH) {
 
   const parts = [catalog, pages, page, content, imgObj, imgStream, imgObjEnd];
   const header = pdfStr('%PDF-1.4\n');
-  const offsets = [];
+  const offsets = [header.length];
 
   let pos = header.length;
   for (const p of parts) {
@@ -68,7 +68,7 @@ async function buildPDF(canvas, imgW, imgH) {
 }
 
 async function deflateRaw(data) {
-  const cs = new CompressionStream('deflate');  // zlib formát (s hlavičkou) — vyžaduje PDF FlateDecode
+  const cs = new CompressionStream('deflate-raw');
   const wr = cs.writable.getWriter();
   wr.write(data);
   wr.close();

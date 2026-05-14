@@ -9,13 +9,13 @@ session_start();
 
 function auth(): array {
     if (empty($_SESSION['user'])) {
-        header('Location: login.php'); exit;
+        header('Location: /login.php'); exit;
     }
     return $_SESSION['user'];
 }
 
 function isAdmin(): bool {
-    return in_array($_SESSION['user']['role'] ?? '', ['admin', 'owner']);
+    return ($_SESSION['user']['role'] ?? '') === 'admin';
 }
 
 function json_out(mixed $data, int $code = 200): void {
@@ -36,10 +36,8 @@ function sanitize(string $s): string {
 function setting(string $key, string $default = ''): string {
     static $cache = null;
     if ($cache === null) {
-        $company_id = $_SESSION['user']['company_id'] ?? 1;
-        $rows = db()->prepare('SELECT skey, value FROM company_settings WHERE company_id = ?');
-        $rows->execute([$company_id]);
-        $cache = array_column($rows->fetchAll(), 'value', 'skey');
+        $rows = db()->query('SELECT `skey`, `value` FROM settings')->fetchAll();
+        $cache = array_column($rows, 'value', 'skey');
     }
     return $cache[$key] ?? $default;
 }

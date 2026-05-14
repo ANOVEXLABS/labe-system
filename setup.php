@@ -24,9 +24,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error = 'Heslo musí mít alespoň 8 znaků.';
     } else {
         try {
+            // Spusť SQL schéma — rozdělíme na jednotlivé příkazy aby fungovalo i bez exec multi-query
+            $sql = file_get_contents(__DIR__ . '/sql/schema.sql');
+            // Odstraň komentáře řádek
+            $sql = preg_replace('/^--.*$/m', '', $sql);
+            // Rozděl na příkazy podle středníku
+            $statements = array_filter(array_map('trim', explode(';', $sql)));
+            foreach ($statements as $stmt) {
+                if ($stmt) db()->exec($stmt);
+            }
+
+            // Vytvoř admina
             $hash = password_hash($pass, PASSWORD_BCRYPT, ['cost' => 12]);
-            $stmt = db()->prepare('INSERT INTO users (company_id, name, email, password, role) VALUES (1,?,?,?,?) ON DUPLICATE KEY UPDATE password=?, role="owner"');
-            $stmt->execute([$name, $email, $hash, 'owner', $hash]);
+            $stmt = db()->prepare('INSERT INTO users (name, email, password, role) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE password=?, role="admin"');
+            $stmt->execute([$name, $email, $hash, 'admin', $hash]);
 
             $success = 'Setup dokončen! Přihlas se a SMAŽ tento soubor (setup.php).';
         } catch (Exception $e) {
@@ -58,7 +69,7 @@ button{width:100%;background:#c9a84c;color:#000;border:none;border-radius:4px;pa
   <h1>ANOVEX</h1>
   <p>Label System v2 — první spuštění</p>
   <?php if ($error): ?><div class="err"><?= htmlspecialchars($error) ?></div><?php endif ?>
-  <?php if ($success): ?><div class="ok"><?= htmlspecialchars($success) ?> <a href="login.php" style="color:#4dd4a0">Přihlásit se →</a></div><?php endif ?>
+  <?php if ($success): ?><div class="ok"><?= htmlspecialchars($success) ?> <a href="/login.php" style="color:#4dd4a0">Přihlásit se →</a></div><?php endif ?>
   <?php if (!$success): ?>
   <form method="post">
     <label>Jméno</label>

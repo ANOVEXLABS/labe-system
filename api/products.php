@@ -3,208 +3,174 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../config/app.php';
 
 header('Content-Type: application/json; charset=utf-8');
-$user       = auth();
-$company_id = (int)($user['company_id'] ?? 1);
-$method     = $_SERVER['REQUEST_METHOD'];
-$action     = $_GET['action'] ?? '';
-$id         = (int)($_GET['id'] ?? 0);
+$user = auth();
 
-// Top-level DB columns — vše ostatní jde do fields_json
-const TOP = ['id','company_id','supplier_id','template_id','stack_id','preset_id',
-             'sku','ean','refid','width_mm','height_mm','ing_mode','active',
-             'created_at','updated_at','fields_json','fs_json','style_json','sort_order'];
+$method = $_SERVER['REQUEST_METHOD'];
+$action = $_GET['action'] ?? '';
+$id     = (int)($_GET['id'] ?? 0);
 
-// Převede DB řádek na plochý objekt pro JS (stejná struktura jako starý schema)
-function flattenProduct(array $row): array {
-    $fields = isset($row['fields_json']) && $row['fields_json']
-        ? json_decode($row['fields_json'], true) : [];
-    $fs     = isset($row['fs_json']) && $row['fs_json']
-        ? json_decode($row['fs_json'], true) : null;
-    $style  = isset($row['style_json']) && $row['style_json']
-        ? json_decode($row['style_json'], true) : null;
-    unset($row['fields_json'], $row['fs_json'], $row['style_json']);
-    return array_merge($row, $fields ?? [], ['fs' => $fs, 'style' => $style]);
-}
+// Pole která se ukládají
+$FIELDS = ['ean','sku','refid','orig_name','preset_code','name','sub','count','num',
+           'name_full','net','doplnek_stravy','davkovani','upozorneni','skladovani',
+           'obsah_baleni','sarze','serv','slozeni','storage','ing_mode'];
+$JSON_FIELDS = ['ings','feats','fs'];
 
-// Ze vstupních dat vytáhne co patří do fields_json
-function extractFields(array $data): array {
-    $jsonArr = ['ings', 'feats'];
-    $fields  = [];
-    foreach ($data as $k => $v) {
-        if (in_array($k, TOP) || $k === 'fs' || $k === 'style') continue;
-        $fields[$k] = in_array($k, $jsonArr)
-            ? (is_string($v) ? json_decode($v, true) : $v)
-            : $v;
+function buildProduct(array $data, array $fields, array $jsonFields): array {
+    $out = [];
+    foreach ($fields as $f) {
+        $out[$f] = $data[$f] ?? null;
     }
-    return $fields;
-}
-
-function getPresetId(string $code, int $cid): ?int {
-    $s = db()->prepare(
-        'SELECT id FROM size_presets WHERE code=? AND (company_id IS NULL OR company_id=?) LIMIT 1'
-    );
-    $s->execute([$code, $cid]);
-    $r = $s->fetch();
-    return $r ? (int)$r['id'] : null;
+    foreach ($jsonFields as $f) {
+        $val = $data[$f] ?? null;
+        $out[$f] = is_string($val) ? $val : json_encode($val, JSON_UNESCAPED_UNICODE);
+    }
+    return $out;
 }
 
 switch ($method . ':' . $action) {
 
+    // GET ?action=list&stack_id=X
     case 'GET:list':
         $stack_id = (int)($_GET['stack_id'] ?? 0);
         if (!$stack_id) json_error('Chybí stack_id.');
-        $s = db()->prepare(
-            'SELECT * FROM products WHERE stack_id=? AND company_id=? AND active=1 ORDER BY id'
-        );
-        $s->execute([$stack_id, $company_id]);
-        json_out(array_map('flattenProduct', $s->fetchAll()));
+        $stmt = db()->prepare('SELECT * FROM products WHERE stack_id = ? AND active = 1 ORDER BY sort_order, id');
+        $stmt->execute([$stack_id]);
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$r) {
+            foreach (['ings','feats','fs'] as $f) {
+                $r[$f] = $r[$f] ? json_decode($r[$f], true) : null;
+            }
+        }
+        json_out($rows);
         break;
 
+    // GET ?action=get&id=X
     case 'GET:get':
-        $s = db()->prepare('SELECT * FROM products WHERE id=? AND company_id=? LIMIT 1');
-        $s->execute([$id, $company_id]);
-        $row = $s->fetch();
+        $stmt = db()->prepare('SELECT * FROM products WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch();
         if (!$row) json_error('Produkt nenalezen.', 404);
-        json_out(flattenProduct($row));
+        foreach (['ings','feats','fs'] as $f) {
+            $row[$f] = $row[$f] ? json_decode($row[$f], true) : null;
+        }
+        json_out($row);
         break;
 
+    // GET ?action=all&supplier_id=X — pro katalog
     case 'GET:all':
-        $supplier_id = (int)($_GET['supplier_id'] ?? 0);
-        $s = db()->prepare('
-            SELECT p.*, st.name AS stack_name
+        $supplier_id = (int)($_GET['supplier_id'] ?? 1);
+        $stmt = db()->prepare('
+            SELECT p.*, s.name AS stack_name, s.accent
             FROM products p
-            JOIN stacks st ON p.stack_id = st.id
-            WHERE p.supplier_id=? AND p.company_id=? AND p.active=1
-            ORDER BY st.sort_order, p.id
+            JOIN stacks s ON p.stack_id = s.id
+            WHERE p.supplier_id = ? AND p.active = 1
+            ORDER BY s.sort_order, p.sort_order, p.id
         ');
-        $s->execute([$supplier_id, $company_id]);
-        json_out(array_map('flattenProduct', $s->fetchAll()));
+        $stmt->execute([$supplier_id]);
+        $rows = $stmt->fetchAll();
+        foreach ($rows as &$r) {
+            foreach (['ings','feats','fs'] as $f) {
+                $r[$f] = $r[$f] ? json_decode($r[$f], true) : null;
+            }
+        }
+        json_out($rows);
         break;
 
+    // POST ?action=create
     case 'POST:create':
-        $data      = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-        $fields    = extractFields($data);
-        $pcode     = $data['preset_code'] ?? ($fields['preset_code'] ?? '180x70');
-        $preset_id = getPresetId($pcode, $company_id);
-        $fs        = $data['fs']    ?? null;
-        $style     = $data['style'] ?? null;
-        $s = db()->prepare('
-            INSERT INTO products
-              (company_id,supplier_id,template_id,stack_id,preset_id,
-               sku,ean,refid,width_mm,height_mm,ing_mode,fields_json,fs_json,style_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ');
-        $s->execute([
-            $company_id,
-            (int)($data['supplier_id'] ?? 0),
-            (int)($data['template_id'] ?? 1),
+        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $p = buildProduct($data, $FIELDS, $JSON_FIELDS);
+        $cols = implode(',', array_keys($p));
+        $vals = implode(',', array_fill(0, count($p), '?'));
+        $stmt = db()->prepare("INSERT INTO products (stack_id, supplier_id, sort_order, $cols) VALUES (?,?,?,$vals)");
+        $stmt->execute(array_merge([
             (int)($data['stack_id']    ?? 0),
-            $preset_id,
-            $data['sku']       ?? null,
-            $data['ean']       ?? null,
-            $data['refid']     ?? null,
-            $data['width_mm']  ?? null,
-            $data['height_mm'] ?? null,
-            $data['ing_mode']  ?? 'table',
-            json_encode($fields, JSON_UNESCAPED_UNICODE),
-            $fs    ? json_encode($fs,    JSON_UNESCAPED_UNICODE) : null,
-            $style ? json_encode($style, JSON_UNESCAPED_UNICODE) : null,
-        ]);
+            (int)($data['supplier_id'] ?? 1),
+            (int)($data['sort_order']  ?? 0),
+        ], array_values($p)));
         json_out(['ok' => true, 'id' => db()->lastInsertId()]);
         break;
 
+    // POST ?action=update&id=X
     case 'POST:update':
-        $data      = json_decode(file_get_contents('php://input'), true) ?? $_POST;
-        $fields    = extractFields($data);
-        $pcode     = $data['preset_code'] ?? ($fields['preset_code'] ?? null);
-        $preset_id = $pcode ? getPresetId($pcode, $company_id) : null;
-        $fs        = $data['fs']    ?? null;
-        $style     = $data['style'] ?? null;
-        $s = db()->prepare('
-            UPDATE products SET
-              stack_id=?,preset_id=?,sku=?,ean=?,refid=?,
-              width_mm=?,height_mm=?,ing_mode=?,
-              fields_json=?,fs_json=?,style_json=?
-            WHERE id=? AND company_id=?
-        ');
-        $s->execute([
-            (int)($data['stack_id'] ?? 0),
-            $preset_id,
-            $data['sku']       ?? null,
-            $data['ean']       ?? null,
-            $data['refid']     ?? null,
-            $data['width_mm']  ?? null,
-            $data['height_mm'] ?? null,
-            $data['ing_mode']  ?? 'table',
-            json_encode($fields, JSON_UNESCAPED_UNICODE),
-            $fs    ? json_encode($fs,    JSON_UNESCAPED_UNICODE) : null,
-            $style ? json_encode($style, JSON_UNESCAPED_UNICODE) : null,
-            $id,
-            $company_id,
-        ]);
+        $data = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $p = buildProduct($data, $FIELDS, $JSON_FIELDS);
+        // Přidej sort_order a stack_id
+        $p['sort_order'] = (int)($data['sort_order'] ?? 0);
+        $p['stack_id']   = (int)($data['stack_id']   ?? 0);
+        $set = implode(',', array_map(fn($k) => "$k=?", array_keys($p)));
+        $stmt = db()->prepare("UPDATE products SET $set WHERE id=?");
+        $stmt->execute([...array_values($p), $id]);
         json_out(['ok' => true]);
         break;
 
+    // POST ?action=delete&id=X
     case 'POST:delete':
-        db()->prepare('UPDATE products SET active=0 WHERE id=? AND company_id=?')
-            ->execute([$id, $company_id]);
+        db()->prepare('UPDATE products SET active = 0 WHERE id = ?')->execute([$id]);
         json_out(['ok' => true]);
         break;
 
+    // POST ?action=copy&id=X — kopie produktu do jiného stacku
     case 'POST:copy':
-        $data   = json_decode(file_get_contents('php://input'), true) ?? [];
-        $target = (int)($data['target_stack_id'] ?? 0);
+        $data     = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+        $target   = (int)($data['target_stack_id'] ?? 0);
         if (!$target) json_error('Chybí target_stack_id.');
-        $s = db()->prepare('SELECT * FROM products WHERE id=? AND company_id=? LIMIT 1');
-        $s->execute([$id, $company_id]);
-        $orig = $s->fetch();
+        $stmt = db()->prepare('SELECT * FROM products WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+        $orig = $stmt->fetch();
         if (!$orig) json_error('Produkt nenalezen.', 404);
-        $ins = db()->prepare('
-            INSERT INTO products
-              (company_id,supplier_id,template_id,stack_id,preset_id,
-               sku,ean,refid,width_mm,height_mm,ing_mode,fields_json,style_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-        ');
-        $ins->execute([
-            $company_id, $orig['supplier_id'], $orig['template_id'],
-            $target,     $orig['preset_id'],   $orig['sku'],
-            $orig['ean'],$orig['refid'],        $orig['width_mm'],
-            $orig['height_mm'], $orig['ing_mode'],
-            $orig['fields_json'], $orig['style_json'],
-        ]);
+        unset($orig['id'], $orig['created_at'], $orig['updated_at']);
+        $orig['stack_id'] = $target;
+        $orig['fs']       = null; // reset font sizes
+        $cols = implode(',', array_keys($orig));
+        $vals = implode(',', array_fill(0, count($orig), '?'));
+        $ins  = db()->prepare("INSERT INTO products ($cols) VALUES ($vals)");
+        $ins->execute(array_values($orig));
         json_out(['ok' => true, 'id' => db()->lastInsertId()]);
         break;
 
+    // POST ?action=move&id=X — přesun produktu do jiného stacku
     case 'POST:move':
-        $data   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $data   = json_decode(file_get_contents('php://input'), true) ?? $_POST;
         $target = (int)($data['target_stack_id'] ?? 0);
         if (!$target) json_error('Chybí target_stack_id.');
-        db()->prepare('UPDATE products SET stack_id=?, fs_json=NULL WHERE id=? AND company_id=?')
-            ->execute([$target, $id, $company_id]);
+        $stmt = db()->prepare('UPDATE products SET stack_id = ?, fs = NULL WHERE id = ?');
+        $stmt->execute([$target, $id]);
         json_out(['ok' => true]);
         break;
 
+    // POST ?action=import_sku — import SKU z Excelu (EAN → SKU mapa)
     case 'POST:import_sku':
         $data = json_decode(file_get_contents('php://input'), true) ?? [];
-        $map  = $data['map'] ?? [];
+        $map  = $data['map'] ?? []; // [{ean, sku, title}, ...]
         if (!$map) json_error('Prázdná mapa.');
         $updated = 0;
-        $s = db()->prepare('SELECT id, ean FROM products WHERE company_id=? AND active=1');
-        $s->execute([$company_id]);
-        foreach ($s->fetchAll() as $prod) {
+        $stmt = db()->prepare('SELECT id, ean FROM products WHERE active = 1');
+        $stmt->execute();
+        $products = $stmt->fetchAll();
+        foreach ($products as $prod) {
             $ean = preg_replace('/\D/', '', $prod['ean'] ?? '');
             if (!$ean) continue;
             foreach ($map as $entry) {
-                $ex = preg_replace('/\D/', '', $entry['ean'] ?? '');
-                $match = $ex === $ean
-                    || (strlen($ean)>=10 && strlen($ex)>=10 && (
-                        strpos($ex, substr($ean,0,10)) !== false ||
-                        strpos($ean, substr($ex,0,10)) !== false ||
-                        substr($ean,-10) === substr($ex,-10)
-                    ));
+                $excelEan = preg_replace('/\D/', '', $entry['ean'] ?? '');
+                $match = false;
+                // 1. Přesný match
+                if ($excelEan === $ean) $match = true;
+                // 2. Jeden obsahuje druhý (posun z parseru)
+                if (!$match && strlen($ean) >= 10 && strlen($excelEan) >= 10) {
+                    if (strpos($excelEan, substr($ean, 0, 10)) !== false ||
+                        strpos($ean, substr($excelEan, 0, 10)) !== false) {
+                        $match = true;
+                    }
+                }
+                // 3. Posledních 10 číslic
+                if (!$match && strlen($ean) >= 10 && strlen($excelEan) >= 10) {
+                    if (substr($ean, -10) === substr($excelEan, -10)) $match = true;
+                }
                 if ($match) {
-                    db()->prepare('UPDATE products SET sku=?,ean=? WHERE id=? AND company_id=?')
-                        ->execute([$entry['sku'], $ex, $prod['id'], $company_id]);
+                    // Aktualizuj SKU + opraven EAN z excelu (důvěryhodnější zdroj)
+                    $upd = db()->prepare('UPDATE products SET sku=?, ean=?, orig_name=COALESCE(NULLIF(orig_name,""),?) WHERE id=?');
+                    $upd->execute([$entry['sku'], $excelEan, $entry['title'] ?? '', $prod['id']]);
                     $updated++;
                     break;
                 }

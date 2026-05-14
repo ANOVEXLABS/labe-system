@@ -14,108 +14,11 @@ const App = (() => {
     product:    null,   // aktuální produkt (objekt z DB)
     stack:      null,   // aktuální stack (objekt z DB)
     lang:       'cs',
-    translation: null,     // aktuální překlad pro non-CS záložku, nebo null
-    existingLangs: [],     // které překlady existují v DB pro aktuální produkt
     distributor: DISTRIBUTOR,
     zoom:        100,
     ingMode:     'table',
     pending:     false, // probíhá ukládání
   };
-
-  // ── PDF dimension reader ───────────────────────────────────────────────────
-  async function readPdfDimensions(file) {
-    const buf   = await file.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let text = '';
-    const limit = Math.min(bytes.length, 32768);
-    for (let i = 0; i < limit; i++) text += String.fromCharCode(bytes[i]);
-    const m = text.match(/MediaBox\s*\[\s*([\d.+-]+)\s+([\d.+-]+)\s+([\d.+-]+)\s+([\d.+-]+)\s*\]/);
-    if (!m) return null;
-    const ptW = parseFloat(m[3]) - parseFloat(m[1]);
-    const ptH = parseFloat(m[4]) - parseFloat(m[2]);
-    const mmW = Math.round(ptW * 25.4 / 72 * 10) / 10;
-    const mmH = Math.round(ptH * 25.4 / 72 * 10) / 10;
-    const pxW = Math.round(ptW * 300 / 72);
-    const pxH = Math.round(ptH * 300 / 72);
-    return { mmW, mmH, pxW, pxH, isPortrait: mmH > mmW };
-  }
-
-  // ── Dynamický buildPreset (kopie PHP buildPreset) ──────────────────────────
-  function buildPresetJs(mmW, mmH) {
-    const ri = n => Math.round(n);
-    const VW   = ri(mmW * 300 / 25.4);
-    const VH   = ri(mmH * 300 / 25.4);
-    const bOff = Math.max(12, ri(Math.min(VW, VH) * 0.025));
-    const inner = VW - 2 * bOff;
-    const LX1  = bOff, LX2 = bOff + ri(inner * 0.27);
-    const CX1  = LX2,  CX2 = bOff + ri(inner * 0.65);
-    const RX1  = CX2,  RX2 = VW - bOff;
-    const sc   = VH / 827.0;
-    return {
-      VW, VH, c2bW: VW, c2bH: VH,
-      LX1, LX2, CX1, CX2, RX1, RX2, sep1: LX2, sep2: RX1,
-      isPortrait: VH > VW,
-      F: {
-        min: Math.max(14, ri(26*sc)), xs: Math.max(16, ri(30*sc)),
-        sm:  Math.max(18, ri(36*sc)), md: Math.max(22, ri(44*sc)),
-        lg:  Math.max(26, ri(56*sc)), xl: Math.max(32, ri(68*sc)),
-        xxl: Math.max(44, ri(90*sc)), big: Math.max(56, ri(112*sc)),
-        ttl: Math.max(70, ri(140*sc)),
-      },
-      wL: LX2-LX1, wC: CX2-CX1, wR: RX2-RX1, wZ: inner,
-      LH: {
-        xs: Math.max(18, ri(32*sc)), sm: Math.max(22, ri(40*sc)),
-        md: Math.max(26, ri(52*sc)), lg: Math.max(32, ri(64*sc)),
-      },
-    };
-  }
-
-  // ── Jednotný getter presetu — dynamický z rozměrů nebo z PRESETS_MAP ───────
-  function getPreset(product) {
-    if (product && product.width_mm && product.height_mm) {
-      return buildPresetJs(parseFloat(product.width_mm), parseFloat(product.height_mm));
-    }
-    const pk = (product && product.preset_code) || '180x70';
-    return PRESETS_MAP[pk] || PRESETS_MAP['180x70'];
-  }
-
-  // ── Font embedding cache (pro SVG export do PNG/PDF) ──────────────────────
-  let _svgFontStyle = null;
-
-  function _bufToBase64(buf) {
-    const bytes = new Uint8Array(buf);
-    let out = '';
-    for (let i = 0; i < bytes.length; i += 8192) {
-      out += String.fromCharCode(...bytes.subarray(i, i + 8192));
-    }
-    return btoa(out);
-  }
-
-  async function _getSvgFontStyle() {
-    if (_svgFontStyle !== null) return _svgFontStyle;
-    try {
-      const css = await fetch(
-        'https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;1,400&display=swap'
-      ).then(r => r.text());
-      const urls = [...css.matchAll(/url\((https:\/\/[^)]+)\)/g)].map(m => m[1]);
-      let embedded = css;
-      for (const url of urls) {
-        const b64 = _bufToBase64(await fetch(url).then(r => r.arrayBuffer()));
-        embedded = embedded.replace(url, `data:font/woff2;base64,${b64}`);
-      }
-      _svgFontStyle = `<style>${embedded}</style>`;
-    } catch(e) {
-      _svgFontStyle = '';
-    }
-    return _svgFontStyle;
-  }
-
-  async function _buildExportSvg(c2bW, c2bH) {
-    const fontStyle = await _getSvgFontStyle();
-    return buildLabel(state.product, state.stack, getPreset(state.product), state.distributor, state.lang)
-      .replace('width="100%"', `width="${c2bW}" height="${c2bH}"`)
-      .replace('<defs>', `<defs>${fontStyle}`);
-  }
 
   // ── Toast ──────────────────────────────────────────────────────────────────
   function toast(msg, type='ok', ms=2500) {
@@ -147,7 +50,7 @@ const App = (() => {
 
   // ── Načtení stacků ─────────────────────────────────────────────────────────
   async function loadStacks() {
-    state.stacks = await api(`api/stacks.php?supplier_id=${state.supplierId}`);
+    state.stacks = await api(`/api/stacks.php?supplier_id=${state.supplierId}`);
     buildStackList();
     if (state.stacks.length) {
       await selectStack(state.stacks[0]);
@@ -155,14 +58,26 @@ const App = (() => {
   }
 
   function buildStackList() {
-    const el = document.getElementById('stack-select');
+    const el = document.getElementById('stack-list');
     if (!el) return;
-    const curId = state.stack ? state.stack.id : 0;
-    el.innerHTML = state.stacks.map(st =>
-      `<option value="${st.id}" ${st.id === curId ? 'selected' : ''}>${esc(st.name)}${st.sub ? ' — ' + esc(st.sub) : ''}</option>`
-    ).join('');
+    const SERIES_COLOR = {premium:'#c9a84c', formula:'#2d9e75', select:'#e0c97a'};
+    const SERIES_LABEL = {premium:'P', formula:'F', select:'S'};
+    el.innerHTML = state.stacks.map(st => `
+      <div class="si ${state.stack && state.stack.id === st.id ? 'active' : ''}"
+           onclick="App._selectStackById(${st.id})">
+        <div class="si-dot" style="background:${st.accent}"></div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(st.name)}</div>
+          ${st.sub ? `<div style="font-size:9px;color:var(--muted)">${esc(st.sub)}</div>` : ''}
+        </div>
+        <div class="si-badge" style="border-color:${SERIES_COLOR[st.series]||'#888'};color:${SERIES_COLOR[st.series]||'#888'}">${SERIES_LABEL[st.series]||'?'}</div>
+      </div>
+    `).join('');
+
+    // Move target select
     const mv = document.getElementById('move-target');
     if (mv) {
+      const curId = state.stack ? state.stack.id : 0;
       mv.innerHTML = state.stacks
         .filter(st => st.id !== curId)
         .map(st => `<option value="${st.id}">${esc(st.name)}</option>`)
@@ -181,7 +96,7 @@ const App = (() => {
   // ── Načtení produktů ───────────────────────────────────────────────────────
   async function loadProducts() {
     if (!state.stack) return;
-    state.products = await api(`api/products.php?action=list&stack_id=${state.stack.id}`);
+    state.products = await api(`/api/products.php?action=list&stack_id=${state.stack.id}`);
     buildProdList();
     if (state.products.length) {
       await selectProduct(state.products[0]);
@@ -195,36 +110,29 @@ const App = (() => {
   function buildProdList() {
     const el = document.getElementById('prod-list');
     if (!el) return;
-    const curId = state.product ? state.product.id : 0;
-    el.innerHTML = state.products.map((p, i) => {
-      const active = p.id === curId ? 'active' : '';
-      const nm  = esc(p.name || p.sku || 'Produkt #' + p.id);
-      const sub = p.sub  ? `<div class="pi-sub">${esc(p.sub)}</div>` : '';
-      const sz  = p.preset_code ? `<span class="pi-sz">${esc(p.preset_code)}</span>` : '';
-      const ean = p.ean  ? `<span class="pi-ean">${esc(p.ean)}</span>` : '';
-      const meta = (ean || sz) ? `<div class="pi-meta">${ean}${sz}</div>` : '';
-      return `<div class="pi ${active}" onclick="App._selectProductById(${p.id})">
-        <div class="pi-num">${i + 1}</div>
-        <div class="pi-body"><div class="pi-name">${nm}</div>${sub}${meta}</div>
-      </div>`;
-    }).join('');
+    el.innerHTML = state.products.map((p, i) => `
+      <div class="pi ${state.product && state.product.id === p.id ? 'active' : ''}"
+           onclick="App._selectProductById(${p.id})">
+        <div class="pi-name">${esc(p.name)}</div>
+        ${p.sub ? `<div class="pi-sub">${esc(p.sub)}</div>` : ''}
+        <div class="pi-meta">
+          <span class="pi-ean">${p.ean||''}</span>
+          <span class="pi-sz">${p.preset_code||''}</span>
+        </div>
+      </div>
+    `).join('');
     buildCatalog();
   }
 
   async function selectProduct(p) {
     if (state.product && state.product.id && state.product.id !== p.id) {
-      if (state.lang === 'cs') await saveProduct();
-      else if (state.translation) await saveTranslation();
+      // Ulož před přepnutím
+      await saveProduct();
     }
-    state.product     = p;
-    state.curProduct  = p.id;
-    state.translation = null;
-    state.existingLangs = [];
+    state.product    = p;
+    state.curProduct = p.id;
     buildProdList();
-    if (state.lang !== 'cs') await _loadTranslationForActiveLang();
-    await _loadExistingLangs();
     loadForm();
-    updateLangTabs();
     update();
   }
 
@@ -234,48 +142,36 @@ const App = (() => {
   function sv(id, val) { if (g(id)) g(id).value = val || ''; }
 
   function loadForm() {
-    const p  = state.product;
+    const p = state.product;
     const st = state.stack;
     if (!p || !st) { clearForm(); return; }
 
-    // Sdílená pole — vždy z produktu
     sv('f-sen',    st.name);
     sv('f-ssub',   st.sub);
-    sv('f-ean',    p.ean);
-    sv('f-sku',    p.sku);
-    sv('f-origname', p.orig_name);
-    if (g('f-preset')) g('f-preset').value = p.preset_code || '180x70';
     sv('f-doplnek', p.doplnek_stravy || 'DOPLNĚK STRAVY');
+    sv('f-dosage',  p.davkovani);
+    sv('f-warn',    p.upozorneni);
+    sv('f-storage', p.skladovani);
     sv('f-net',     p.net);
+    sv('f-w4',      p.obsah_baleni);
     sv('f-sarze',   p.sarze || 'Č. šarže / Min. trvanlivost: viz. obal');
+    sv('f-bname',   p.name);
+    sv('f-sub',     p.sub);
+    sv('f-count',   p.count);
     sv('f-num',     p.num);
+    sv('f-nfull',   p.name_full);
     const feats = p.feats || [];
     ['f-f1','f-f2','f-f3','f-f4'].forEach((id, i) => sv(id, feats[i] || ''));
-
-    if (state.lang === 'cs') {
-      sv('f-bname',  p.name);     sv('f-sub',    p.sub);
-      sv('f-count',  p.count);    sv('f-nfull',  p.name_full);
-      sv('f-dosage', p.davkovani);sv('f-warn',   p.upozorneni);
-      sv('f-storage',p.skladovani);sv('f-w4',    p.obsah_baleni);
-      sv('f-serv',   p.serv);     sv('f-slozeni',p.slozeni);
-      sv('f-refid',  p.refid);
-      const ings = p.ings || [];
-      sv('f-ings', ings.map(r => Array.isArray(r) ? r.join('|') : r).join('\n'));
-    } else if (state.translation) {
-      const tr = state.translation;
-      sv('f-bname',  tr.name);    sv('f-sub',    tr.sub);
-      sv('f-count',  tr.count);   sv('f-nfull',  tr.name_full);
-      sv('f-dosage', tr.davkovani);sv('f-warn',  tr.upozorneni);
-      sv('f-storage',tr.skladovani);sv('f-w4',   tr.obsah_baleni);
-      sv('f-serv',   tr.serv);    sv('f-slozeni',tr.slozeni);
-      sv('f-refid',  tr.refid);
-      const ings = tr.ings || [];
-      sv('f-ings', ings.map(r => Array.isArray(r) ? r.join('|') : r).join('\n'));
-    } else {
-      ['f-bname','f-sub','f-count','f-nfull','f-dosage','f-warn',
-       'f-storage','f-w4','f-serv','f-ings','f-slozeni','f-refid']
-      .forEach(id => sv(id, ''));
-    }
+    sv('f-serv',    p.serv);
+    // Ings jako textarea
+    const ings = p.ings || [];
+    sv('f-ings',    ings.map(r => Array.isArray(r) ? r.join('|') : r).join('\n'));
+    sv('f-slozeni', p.slozeni);
+    sv('f-ean',     p.ean);
+    sv('f-sku',     p.sku);
+    sv('f-refid',   p.refid);
+    sv('f-origname', p.orig_name);
+    if (g('f-preset')) g('f-preset').value = p.preset_code || '180x70';
 
     setIngMode(p.ing_mode || 'table', true);
     buildFsControls();
@@ -292,41 +188,33 @@ const App = (() => {
 
   function readForm() {
     if (!state.product) return;
-    const p  = state.product;
+    const p = state.product;
     const st = state.stack;
 
-    // Sdílená pole vždy do produktu
     if (st) { st.name = gv('f-sen'); st.sub = gv('f-ssub'); }
+
     p.doplnek_stravy = gv('f-doplnek');
+    p.davkovani  = gv('f-dosage');
+    p.upozorneni = gv('f-warn');
+    p.skladovani = gv('f-storage');
     p.net        = gv('f-net');
+    p.obsah_baleni = gv('f-w4');
     p.sarze      = gv('f-sarze');
+    p.name       = gv('f-bname');
+    p.sub        = gv('f-sub');
+    p.count      = gv('f-count');
     p.num        = gv('f-num');
+    p.name_full  = gv('f-nfull');
     p.feats      = ['f-f1','f-f2','f-f3','f-f4'].map(id => gv(id)).filter(Boolean);
+    p.serv       = gv('f-serv');
+    p.ings       = gv('f-ings').split('\n').filter(l=>l.trim()).map(l=>{const pt=l.split('|');return[pt[0]||'',pt[1]||'',pt[2]||'/'];});
+    p.slozeni    = gv('f-slozeni');
     p.ean        = gv('f-ean');
     p.sku        = gv('f-sku');
+    p.refid      = gv('f-refid');
     p.orig_name  = gv('f-origname');
     p.preset_code = gv('f-preset') || '180x70';
     p.ing_mode   = state.ingMode;
-
-    if (state.lang === 'cs') {
-      p.name       = gv('f-bname');  p.sub        = gv('f-sub');
-      p.count      = gv('f-count');  p.name_full  = gv('f-nfull');
-      p.davkovani  = gv('f-dosage'); p.upozorneni = gv('f-warn');
-      p.skladovani = gv('f-storage');p.obsah_baleni = gv('f-w4');
-      p.serv       = gv('f-serv');   p.slozeni    = gv('f-slozeni');
-      p.refid      = gv('f-refid');
-      p.ings = gv('f-ings').split('\n').filter(l=>l.trim()).map(l=>{const pt=l.split('|');return[pt[0]||'',pt[1]||'',pt[2]||'/'];});
-    } else if (state.translation) {
-      const tr = state.translation;
-      tr.name       = gv('f-bname');  tr.sub        = gv('f-sub');
-      tr.count      = gv('f-count');  tr.name_full  = gv('f-nfull');
-      tr.davkovani  = gv('f-dosage'); tr.upozorneni = gv('f-warn');
-      tr.skladovani = gv('f-storage');tr.obsah_baleni = gv('f-w4');
-      tr.serv       = gv('f-serv');   tr.slozeni    = gv('f-slozeni');
-      tr.refid      = gv('f-refid');
-      tr.ings = gv('f-ings').split('\n').filter(l=>l.trim()).map(l=>{const pt=l.split('|');return[pt[0]||'',pt[1]||'',pt[2]||'/'];});
-    }
-    // Pokud state.translation === null (non-CS bez překladu) — nic nepiš
   }
 
   // ── Font size controls ─────────────────────────────────────────────────────
@@ -346,43 +234,23 @@ const App = (() => {
     {key:'dist',   label:'Distributor'},
   ];
 
-  function _activeFsObject() {
-    if (state.lang === 'cs') {
-      if (!state.product.fs) state.product.fs = {};
-      return state.product.fs;
-    } else {
-      if (!state.translation) return null;
-      if (!state.translation.fs) state.translation.fs = {};
-      return state.translation.fs;
-    }
-  }
-
   function buildFsControls() {
     if (!state.product) return;
-    const fs = _activeFsObject() || {};
-    const P  = getPreset(state.product);
+    const fs = state.product.fs || {};
+    const pk = (state.product.preset_code || '180x70');
+    const P  = PRESETS_MAP[pk] || PRESETS_MAP['180x70'];
     const F  = P ? P.F : {min:16, xs:20, sm:24, md:30};
-
-    // Pro portrait etikety: slider default z middle-zone Fm (ne z VH-scaled F)
-    let Fbase = F;
-    if (P && P.isPortrait) {
-      const bOff = P.LX1, pad = 8;
-      const h    = P.VH - 2*bOff - 2*pad;
-      const midH = Math.round(h * 0.83) - Math.round(h * 0.45);
-      const msc  = midH / 827.0;
-      Fbase = { min: Math.max(14, Math.round(26*msc)), xs: Math.max(16, Math.round(30*msc)) };
-    }
 
     // Aktualizuj všechny inline fs kontrolky
     FS_DEFS.forEach(({key}) => {
-      const cur = fs[key] !== undefined ? fs[key] : (Fbase.min + 2);
+      const cur = fs[key] !== undefined ? fs[key] : (F.min + 2);
       const valEl = g('fsv_' + key);
       if (valEl) valEl.textContent = Math.round(cur * 10) / 10;
       const slider = g('fsr_' + key);
       if (slider) {
-        slider.min = 6;
-        slider.max = 90;
-        slider.value = Math.min(cur, 90);
+        slider.min = F.min;
+        slider.max = F.xxl || 90;
+        slider.value = cur;
       }
     });
   }
@@ -396,19 +264,16 @@ const App = (() => {
       svgEl.innerHTML = '';
       return;
     }
-    const P  = getPreset(state.product);
-    // Automatické číslování: "1 / 4" apod. — pro SELECT sérii se nevykresluje
+    const pk = state.product.preset_code || '180x70';
+    const P  = PRESETS_MAP[pk] || PRESETS_MAP['180x70'];
+    // Automatické číslování: "1 / 4" apod.
     const curIdx = state.products.findIndex(p => p && p.id === state.product.id);
-    const isSel = state.stack && state.stack.series === 'select';
-    const autoNum = isSel
-      ? ''
-      : (curIdx !== -1 && state.products.length > 0)
-        ? `${curIdx + 1} / ${state.products.length}`
-        : (state.product.num || '');
+    const autoNum = (curIdx !== -1 && state.products.length > 0)
+      ? `${curIdx + 1} / ${state.products.length}`
+      : (state.product.num || '');
     // Dočasně nastavíme num pro renderování
     const origNum = state.product.num;
     state.product.num = autoNum;
-    state.product._translation = state.lang !== 'cs' ? (state.translation || null) : null;
     const svgStr = buildLabel(state.product, state.stack, P, state.distributor, state.lang);
     state.product.num = origNum; // Vrátíme zpět
     svgEl.innerHTML = svgStr;
@@ -456,10 +321,7 @@ const App = (() => {
   let saveTimer = null;
   function scheduleSave() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      if (state.lang === 'cs') saveProduct();
-      else if (state.translation) saveTranslation();
-    }, 1500);
+    saveTimer = setTimeout(saveProduct, 1500);
   }
 
   async function saveProduct() {
@@ -469,8 +331,8 @@ const App = (() => {
       const p = state.product;
       const isNew = !p.id;
       const url = isNew
-        ? `api/products.php?action=create`
-        : `api/products.php?action=update&id=${p.id}`;
+        ? `/api/products.php?action=create`
+        : `/api/products.php?action=update&id=${p.id}`;
       const payload = {
         ...p,
         stack_id:    state.stack?.id,
@@ -484,31 +346,11 @@ const App = (() => {
         p.id = res.id;
         // Aktualizuj stack jméno
         if (state.stack) {
-          await api(`api/stacks.php?action=update&id=${state.stack.id}`, state.stack);
+          await api(`/api/stacks.php?action=update&id=${state.stack.id}`, state.stack);
         }
       }
     } catch (e) {
       toast('Chyba ukládání: ' + e.message, 'err');
-    } finally {
-      state.pending = false;
-    }
-  }
-
-  async function saveTranslation() {
-    if (!state.product || !state.product.id || !state.translation || state.pending) return;
-    state.pending = true;
-    try {
-      const tr = state.translation;
-      await api(
-        `api/translations.php?action=save&product_id=${state.product.id}&lang=${state.lang}`,
-        { ...tr, ings: tr.ings || [], fs: tr.fs || {} }
-      );
-      if (!state.existingLangs.includes(state.lang)) {
-        state.existingLangs.push(state.lang);
-        updateLangTabs();
-      }
-    } catch (e) {
-      toast('Chyba ukládání překladu: ' + e.message, 'err');
     } finally {
       state.pending = false;
     }
@@ -519,20 +361,18 @@ const App = (() => {
     const p  = state.product;
     const st = state.stack;
     if (!p || !st) return `anovex_label.${ext}`;
-    const sku    = p.sku ? p.sku + '_' : '';
-    const rid    = (state.lang !== 'cs' && state.translation?.refid)
-                     ? state.translation.refid : (p.refid || '');
-    const refid  = rid ? 'ID_' + rid + '_' : '';
+    const sku    = p.sku    ? p.sku + '_' : '';
+    const refid  = p.refid  ? 'ID_' + p.refid + '_' : '';
     const stName = st.name.replace(/\s+/g, '-');
     const bname  = (p.name||'').replace(/\s+/g,'_').replace(/[^\w\-]/g,'');
-    const pk     = p.width_mm ? `${p.width_mm}x${p.height_mm}` : (p.preset_code || '180x70');
-    const lang   = state.lang !== 'cs' ? `_${state.lang.toUpperCase()}` : '';
-    return `${sku}${refid}${stName}_${bname}_${pk}${lang}.${ext}`;
+    const pk     = p.preset_code || '180x70';
+    return `${sku}${refid}${stName}_${bname}_${pk}.${ext}`;
   }
 
   function exportSVG() {
     if (!state.product) return;
-    const P  = getPreset(state.product);
+    const pk = state.product.preset_code || '180x70';
+    const P  = PRESETS_MAP[pk];
     const svgStr = buildLabel(state.product, state.stack, P, state.distributor, state.lang);
     const blob = new Blob([svgStr], {type:'image/svg+xml'});
     const a = document.createElement('a');
@@ -544,14 +384,14 @@ const App = (() => {
 
   async function exportPNG() {
     if (!state.product) return;
-    const P  = getPreset(state.product);
+    const pk = state.product.preset_code || '180x70';
+    const P  = PRESETS_MAP[pk] || PRESETS_MAP['180x70'];
     const {c2bW, c2bH} = P;
     const btn = document.querySelector('[onclick="App.exportPNG()"]');
     if (btn) { btn.textContent = '⏳'; btn.disabled = true; }
     try {
-      const svgStr = await _buildExportSvg(c2bW, c2bH);
+      const svgStr = buildLabel(state.product, state.stack, P, state.distributor, state.lang);
       const img = new Image();
-      img.width = c2bW; img.height = c2bH;
       const blob = new Blob([svgStr], {type:'image/svg+xml'});
       const url  = URL.createObjectURL(blob);
       await new Promise((res,rej) => { img.onload=res; img.onerror=rej; img.src=url; });
@@ -579,14 +419,14 @@ const App = (() => {
 
   async function exportPDF() {
     if (!state.product) return;
-    const P  = getPreset(state.product);
+    const pk = state.product.preset_code || '180x70';
+    const P  = PRESETS_MAP[pk] || PRESETS_MAP['180x70'];
     const {c2bW, c2bH} = P;
     const btn = document.querySelector('[onclick="App.exportPDF()"]');
     if (btn) { btn.textContent = '⏳ Generuji…'; btn.disabled = true; }
     try {
-      const svgStr = await _buildExportSvg(c2bW, c2bH);
+      const svgStr = buildLabel(state.product, state.stack, P, state.distributor, state.lang);
       const img = new Image();
-      img.width = c2bW; img.height = c2bH;
       const blob = new Blob([svgStr], {type:'image/svg+xml'});
       const url  = URL.createObjectURL(blob);
       await new Promise((res,rej) => { img.onload=res; img.onerror=rej; img.src=url; });
@@ -635,9 +475,9 @@ const App = (() => {
   async function createStack() {
     const name = prompt('Název nového stacku:');
     if (!name) return;
-    const res = await api('api/stacks.php?action=create', {
+    const res = await api('/api/stacks.php?action=create', {
       supplier_id: state.supplierId,
-      name,
+      name, series: 'formula', bg: '#080808', accent: '#c9a84c',
     });
     await loadStacks();
     const st = state.stacks.find(s => s.id === res.id);
@@ -646,7 +486,7 @@ const App = (() => {
 
   async function createProduct() {
     if (!state.stack) return;
-    const res = await api('api/products.php?action=create', {
+    const res = await api('/api/products.php?action=create', {
       stack_id:    state.stack.id,
       supplier_id: state.supplierId,
       name:        'Nový produkt',
@@ -669,7 +509,7 @@ const App = (() => {
       const pid = state.product.id;
       state.product = null;
       state.curProduct = null;
-      await api(`api/products.php?action=delete&id=${pid}`, {});
+      await api(`/api/products.php?action=delete&id=${pid}`, {});
       toast('Produkt smazán', 'ok');
       await loadProducts();
     } catch(e) {
@@ -697,7 +537,7 @@ const App = (() => {
 
   async function updateSortOrder() {
     for (let i = 0; i < state.products.length; i++) {
-      await api(`api/products.php?action=update&id=${state.products[i].id}`, {...state.products[i], sort_order: i});
+      await api(`/api/products.php?action=update&id=${state.products[i].id}`, {...state.products[i], sort_order: i});
     }
     buildProdList();
     update();
@@ -715,7 +555,7 @@ const App = (() => {
       // Odstraň produkt z lokálního stavu PŘED API voláním
       state.product = null;
       state.curProduct = null;
-      await api(`api/products.php?action=move&id=${pid}`, {target_stack_id: targetId});
+      await api(`/api/products.php?action=move&id=${pid}`, {target_stack_id: targetId});
       toast('Produkt přesunut', 'ok');
       await loadProducts();
     } catch(e) {
@@ -731,7 +571,7 @@ const App = (() => {
     if (!el) return;
     const q = (g('cat-search')?.value || '').toLowerCase().trim();
     try {
-      const all = await api(`api/products.php?action=all&supplier_id=${state.supplierId}`);
+      const all = await api(`/api/products.php?action=all&supplier_id=${state.supplierId}`);
       // Group by EAN
       const map = {};
       all.forEach(p => {
@@ -766,7 +606,7 @@ const App = (() => {
 
   async function _copyFromCatalog(srcId) {
     if (!state.stack) return;
-    await api(`api/products.php?action=copy&id=${srcId}`, {target_stack_id: state.stack.id});
+    await api(`/api/products.php?action=copy&id=${srcId}`, {target_stack_id: state.stack.id});
     await loadProducts();
     toast('Produkt přidán', 'ok');
   }
@@ -790,7 +630,7 @@ const App = (() => {
             title: String(r['Title']||r['title']||'').trim(),
           }))
           .filter(r => r.ean.length >= 12 && r.sku);
-        const res = await api('api/products.php?action=import_sku', {map});
+        const res = await api('/api/products.php?action=import_sku', {map});
         if (status) {
           status.style.color = 'var(--green)';
           status.textContent = `✓ Aktualizováno: ${res.updated} produktů`;
@@ -806,29 +646,41 @@ const App = (() => {
   }
 
   // ── Překlady ───────────────────────────────────────────────────────────────
+  async function loadTranslation() {
+    if (!state.product) return;
+    const lang = g('trans-lang')?.value || 'de';
+    const status = g('trans-status');
+    try {
+      const tr = await api(`/api/translations.php?action=get&product_id=${state.product.id}&lang=${lang}`);
+      state.product._translation = tr;
+      state.lang = lang;
+      if (status) { status.style.color = 'var(--green)'; status.textContent = `✓ Překlad (${lang}) načten`; }
+      update();
+    } catch(e) {
+      if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ ' + e.message; }
+    }
+  }
+
   async function aiTranslate() {
-    if (!state.product || state.lang === 'cs') return;
-    const lang   = state.lang;
-    const apiKey = localStorage.getItem(API_KEY_STORAGE) || '';
+    if (!state.product) return;
+    const lang    = g('trans-lang')?.value || 'de';
+    const apiKey  = localStorage.getItem(API_KEY_STORAGE) || prompt('Zadej Anthropic API klíč:');
+    if (!apiKey) return;
+    localStorage.setItem(API_KEY_STORAGE, apiKey);
     const status = g('trans-status');
     if (status) { status.style.color = 'var(--gold)'; status.textContent = '⏳ Překládám…'; }
     try {
-      const res = await api(`api/translations.php?action=ai_translate&product_id=${state.product.id}`, {
-        api_key:     apiKey,
+      const res = await api('/api/translations.php?action=ai_translate', {
+        product_id: state.product.id,
+        api_key: apiKey,
         target_lang: lang,
-        source:      state.product,
+        source: state.product,
       });
-      const existing = state.translation || {};
-      const merged = { ...existing, ...res.translated, product_id: state.product.id, lang };
-      await api(
-        `api/translations.php?action=save&product_id=${state.product.id}&lang=${lang}`,
-        merged
-      );
-      state.translation = merged;
-      if (!state.existingLangs.includes(lang)) state.existingLangs.push(lang);
-      if (status) { status.style.color = 'var(--green)'; status.textContent = `✓ Přeloženo do ${lang.toUpperCase()}`; }
-      updateLangTabs();
-      loadForm();
+      // Uložení překladu
+      await api(`/api/translations.php?action=save&product_id=${state.product.id}&lang=${lang}`, res.translated);
+      state.product._translation = res.translated;
+      state.lang = lang;
+      if (status) { status.style.color = 'var(--green)'; status.textContent = `✓ Přeloženo do ${lang}`; }
       update();
     } catch(e) {
       if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ ' + e.message; }
@@ -837,7 +689,6 @@ const App = (() => {
 
   // ── PDF Label Parser ───────────────────────────────────────────────────────
   async function parseLabelPDF(file) {
-    if (state.parsingPDF) return;  // guard proti dvojitému volání (drag + click)
     const status = g('pdf-status');
     if (!file) {
       if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ Nebyl vybrán žádný soubor.'; }
@@ -847,13 +698,9 @@ const App = (() => {
       if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ Vybraný soubor není PDF: ' + file.name; }
       return;
     }
-    state.parsingPDF = true;
 
     const apiKey = (g('pdf-api-key')?.value || '').trim(); // může být prázdné, backend použije klíč z Nastavení
     if (status) { status.style.color = 'var(--gold)'; status.textContent = '⏳ Čtu PDF: ' + file.name; }
-
-    // Přečíst rozměry z MediaBox před base64 konverzí
-    const dims = await readPdfDimensions(file);
 
     try {
       const b64 = await new Promise((res, rej) => {
@@ -866,7 +713,7 @@ const App = (() => {
 
       if (status) status.textContent = '⏳ Analyzuji etiketu přes AI…';
 
-      const result = await api('api/parse_label.php', {
+      const result = await api('/api/parse_label.php', {
         api_key:    apiKey,
         pdf_base64: b64,
         filename:   file.name,
@@ -878,35 +725,34 @@ const App = (() => {
       // Pokud není vybraný žádný produkt, vytvoříme nový v aktuálním stacku.
       // Dříve se data načetla, ale neměla se kam zapsat — proto se nic nezobrazilo.
       if (!state.stack) throw new Error('Nejdříve vyber stack/formulaci vlevo.');
-      // Každý nahraný PDF = nový produkt (nikdy nepřepisovat stávající)
-      const createPayload = {
-        stack_id:        state.stack.id,
-        supplier_id:     state.supplierId,
-        name:            d.name || d.nameFull || d.name_full || file.name.replace(/\.pdf$/i, ''),
-        sub:             d.sub || '',
-        count:           d.count || '',
-        net:             d.net || '',
-        ean:             d.ean || '',
-        sku:             d.sku || '',
-        orig_name:       d.origname || d.orig_name || d.original_name || '',
-        name_full:       d.nameFull || d.name_full || d.full_name || d.name || '',
-        preset_code:     d.preset || d.preset_code || '180x70',
-        width_mm:        dims ? dims.mmW : null,
-        height_mm:       dims ? dims.mmH : null,
-        doplnek_stravy:  'DOPLNĚK STRAVY',
-        sarze:           'Č. šarže / Min. trvanlivost: viz. obal',
-        ing_mode:        d.ingMode || d.ing_mode || 'table',
-        sort_order:      state.products.length,
-        ings:            [],
-        feats:           [],
-        fs:              {},
-      };
-      const created = await api('api/products.php?action=create', createPayload);
-      state.product = { ...createPayload, id: created.id };
-      state.curProduct = created.id;
-      state.products.push(state.product);
-      buildProdList();
-      loadForm();
+      if (!state.product) {
+        const createPayload = {
+          stack_id:        state.stack.id,
+          supplier_id:     state.supplierId,
+          name:            d.name || d.nameFull || d.name_full || file.name.replace(/\.pdf$/i, ''),
+          sub:             d.sub || '',
+          count:           d.count || '',
+          net:             d.net || '',
+          ean:             d.ean || '',
+          sku:             d.sku || '',
+          orig_name:       d.origname || d.orig_name || d.original_name || '',
+          name_full:       d.nameFull || d.name_full || d.full_name || d.name || '',
+          preset_code:     d.preset || d.preset_code || '180x70',
+          doplnek_stravy:  'DOPLNĚK STRAVY',
+          sarze:           'Č. šarže / Min. trvanlivost: viz. obal',
+          ing_mode:        d.ingMode || d.ing_mode || 'table',
+          sort_order:      state.products.length,
+          ings:            [],
+          feats:           [],
+          fs:              {},
+        };
+        const created = await api('/api/products.php?action=create', createPayload);
+        state.product = { ...createPayload, id: created.id };
+        state.curProduct = created.id;
+        state.products.push(state.product);
+        buildProdList();
+        loadForm();
+      }
 
       // Normalizace názvů klíčů ze staré HTML aplikace i nového PHP parseru
       const nameFull = d.nameFull || d.name_full || d.full_name || d.nfull || '';
@@ -942,32 +788,27 @@ const App = (() => {
       // Přepsat objekt produktu z formuláře, vykreslit a ihned uložit do DB.
       readForm();
       update();
-      clearTimeout(saveTimer);  // zruší timer z update() — sami voláme saveProduct() hned
       await saveProduct();
       buildProdList();
 
       const name = d.name || nameFull || file.name;
-      const dimStr = dims ? ` · ${dims.mmW}×${dims.mmH}mm (${dims.pxW}×${dims.pxH}px)` : '';
       if (status) {
         status.style.color = 'var(--green)';
-        status.textContent = '✓ ' + name + dimStr;
+        status.textContent = '✓ Data vložena do etikety: ' + name;
       }
 
     } catch(e) {
       console.error('parseLabelPDF error:', e);
       if (status) { status.style.color = 'var(--red)'; status.textContent = '✗ ' + (e.message || 'Chyba parseru'); }
-    } finally {
-      state.parsingPDF = false;
     }
   }
 
   // ── FS change ──────────────────────────────────────────────────────────────
   function _fsChange(key, val) {
     if (!state.product) return;
-    const fsObj = _activeFsObject();
-    if (!fsObj) return;
+    if (!state.product.fs) state.product.fs = {};
     val = Math.max(6, Math.min(90, val));
-    fsObj[key] = val;
+    state.product.fs[key] = val;
     // Aktualizuj inline zobrazení
     const el = g('fsv_' + key);
     if (el) el.textContent = Math.round(val * 10) / 10;
@@ -982,52 +823,9 @@ const App = (() => {
     await loadStacks();
   }
 
-  async function switchLang(lang) {
-    if (lang === state.lang) return;
-    clearTimeout(saveTimer);
-    if (state.lang === 'cs') { readForm(); await saveProduct(); }
-    else if (state.translation) { readForm(); await saveTranslation(); }
+  function setLang(lang) {
     state.lang = lang;
-    state.translation = null;
-    if (lang !== 'cs') await _loadTranslationForActiveLang();
-    updateLangTabs();
-    loadForm();
     update();
-  }
-
-  function setLang(lang) { switchLang(lang); }
-
-  async function _loadTranslationForActiveLang() {
-    if (!state.product || state.lang === 'cs') return;
-    try {
-      const tr = await api(
-        `api/translations.php?action=get&product_id=${state.product.id}&lang=${state.lang}`
-      );
-      state.translation = (tr && Object.keys(tr).length > 0) ? tr : null;
-    } catch(e) {
-      state.translation = null;
-      toast('Chyba načtení překladu: ' + e.message, 'err');
-    }
-  }
-
-  async function _loadExistingLangs() {
-    if (!state.product || !state.product.id) { state.existingLangs = []; return; }
-    try {
-      const rows = await api(`api/translations.php?action=all_langs&product_id=${state.product.id}`);
-      state.existingLangs = rows.map(r => r.lang);
-    } catch(e) {
-      state.existingLangs = [];
-    }
-  }
-
-  function updateLangTabs() {
-    document.querySelectorAll('.lang-tab').forEach(btn => {
-      const l = btn.dataset.lang;
-      btn.classList.toggle('active', l === state.lang);
-      btn.classList.toggle('has-translation', l === 'cs' || state.existingLangs.includes(l));
-    });
-    const bar = g('trans-missing-bar');
-    if (bar) bar.style.display = (state.lang !== 'cs' && !state.translation) ? '' : 'none';
   }
 
   // ── Public selectory (volané z HTML) ───────────────────────────────────────
@@ -1074,8 +872,6 @@ const App = (() => {
     if (zr) setZoom(zr.value);
 
     await loadStacks();
-    await _loadExistingLangs();
-    updateLangTabs();
     toast('Label System v2 připraven', 'ok', 2000);
   }
 
@@ -1088,11 +884,11 @@ const App = (() => {
 
   // ── Public API ─────────────────────────────────────────────────────────────
   return {
-    update, setIngMode, setZoom, setSupplier, setLang, switchLang, updateLangTabs,
+    update, setIngMode, setZoom, setSupplier, setLang,
     exportSVG, exportPNG, exportPDF,
     createStack, createProduct, deleteProduct,
     moveUp, moveDown, moveToStack,
-    buildCatalog, importSKU, aiTranslate, parseLabelPDF,
+    buildCatalog, importSKU, loadTranslation, aiTranslate, parseLabelPDF,
     _selectStackById, _selectProductById, _copyFromCatalog, _fsChange,
   };
 })();

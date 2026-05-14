@@ -8,3 +8,4 @@ Thumbs.db
 *.sql
 *.sqlite
 .env
+live-online/

@@ -39,7 +39,7 @@ DŮLEŽITÉ:
 
 VRACEJ TUTO STRUKTURU:
 {
-  "name": "celý obchodní název produktu přeložený do češtiny, přesně jak je uveden na etiketě — pokud je víceslovný zachovej ho celý, např. Kurkuma s Piperinem, Ostropestřec Komplex, Shilajit",
+  "name": "krátký marketingový název produktu pro střed etikety, např. Shilajit",
   "sub": "krátký podtitulek/role, např. 20 % fulvinových kyselin",
   "nameFull": "plný regulatorní název produktu v češtině",
   "origname": "originální název z etikety nebo souboru, pokud je dostupný",
