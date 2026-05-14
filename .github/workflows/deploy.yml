@@ -1,0 +1,30 @@
+name: Deploy to labels.anovex.eu
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: anovex.eu
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 21
+          server-dir: /sub/labels/
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/live-online/**
+            config/db.php
+            *.sql
+            *.log
+            replace_with_live.ps1
+            .github/**
